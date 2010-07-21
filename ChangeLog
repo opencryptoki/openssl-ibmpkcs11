@@ -1,0 +1,19 @@
+
+* Fri Jul 9 2010 - yoder1@us.ibm.com
+o converted patch to stand-alone packaging.
+o added #ifdef OPENCRYPTOKI around the #pragma(pack) instructions in
+cryptoki.h. openCryptoki doesn't pack its structures, so this was causing an
+alignment issue.
+o added #ifdef's based on openssl version in order to support the 2 different
+prototypes for RSA_verify between openssl 0.9.8 and 1.0.0.
+o Fixed an issue with passing a reference to an unsigned int through the
+pkcs11 library interface. This broke RSA_sign on 64bit platforms.
+o changed SSL_SIG_LENGTH from 64 to 36. 36 is the size of the concatenation of
+an MD5 hash and a SHA1 hash, which is the length of the NID_md5_sha1 data to
+be signed or verified. See e_pkcs11.c lines 2226 and 2093.
+o in pkcs11_FindOrCreateKey, check that rsa->n exists before creating a pkcs11
+object based on the RSA struct.
+o in pkcs11_init_key, fix a condition where the iv is passed in through the
+CIPHER_CTX pointer instead of the API itself, which led to a segfault.
+o Fixed reference counting issue, probably compiler-induced
+o drafted an rpm specfile

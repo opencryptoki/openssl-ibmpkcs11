@@ -1,0 +1,20 @@
+
+ README for the IBM OpenSSL PKCS#11 engine
+
+ Report bugs: opencryptoki-users@lists.sf.net
+
+ABOUT
+
+This package contains the dynamic PKCS#11 engine, originally written by IBM,
+with additions from Bull.
+
+BUILDING
+
+ Requirements: OpenSSL 0.9.8 or newer
+
+ $ configure [--libdir=/usr/lib/openssl/engines]
+	     [--enable-debug]
+	     [--with-openssl=/path/to/custom/openssl]
+ $ make
+ # make install
+

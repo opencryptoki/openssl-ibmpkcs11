@@ -1,0 +1,24 @@
+#
+# OpenSSL example configuration file. This file will load the engine
+# for all operations that the engine implements for all apps that
+# have OpenSSL config support compiled into them.
+#
+# Adding OpenSSL config support is as simple as adding the following line to
+# the app:
+#
+# #define OPENSSL_LOAD_CONF	1
+#
+openssl_conf = openssl_def
+
+[openssl_def]
+engines = engine_section
+
+[engine_section]
+ibmpkcs11 = ibmpkcs11_section
+
+[ibmpkcs11_section]
+dynamic_path = @LIBDIR@/libibmpkcs11.so
+engine_id = ibmpkcs11
+#default_algorithms = ALL
+default_algorithms = RAND,RSA,DSA,DH,CIPHERS,DIGESTS
+init = 1

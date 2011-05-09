@@ -151,17 +151,11 @@ pid_t mypid = -1;
 
 /* The definitions for control commands specific to this engine */
 #define PKCS11_CMD_SO_PATH		ENGINE_CMD_BASE
-#define PKCS11_CMD_USER_PIN             (ENGINE_CMD_BASE+1)
 static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] =
 {
 	{ PKCS11_CMD_SO_PATH,
 		"SO_PATH",
 		"Specifies the path to the 'pkcs#11' shared library",
-		ENGINE_CMD_FLAG_STRING
-	},
-	{ PKCS11_CMD_USER_PIN,
-		"USER_PIN",
-		"Provides the user PIN for devices that need one to function",
 		ENGINE_CMD_FLAG_STRING
 	},
 	{0, NULL, NULL, 0}

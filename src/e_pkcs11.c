@@ -1204,6 +1204,7 @@ static int pre_init_pkcs11(ENGINE *e)
 	if (rv != CKR_OK) 
 	{
 		pkcs11_die(PKCS11_F_PREINIT, PKCS11_R_GETINFO, rv);
+		pFunctionList->C_Finalize(NULL);
 		goto err;
 	}
 
@@ -1223,6 +1224,7 @@ static int pre_init_pkcs11(ENGINE *e)
 				if (rv != CKR_OK) 
 				{
 					pkcs11_die(PKCS11_F_PREINIT, PKCS11_R_GETSLOTLIST, rv);
+					pFunctionList->C_Finalize(NULL);
 					OPENSSL_free(pSlotList);
 					goto err;
 				}
@@ -1234,7 +1236,9 @@ static int pre_init_pkcs11(ENGINE *e)
 					rv = pFunctionList->C_GetSlotInfo(pSlotList[i], &slotInfo);
 					if (rv != CKR_OK)
 					{
-						pkcs11_die(PKCS11_F_PREINIT, PKCS11_R_GETSLOTINFO, rv);
+						pkcs11_die(PKCS11_F_PREINIT, PKCS11_R_GETSLOTINFO,
+							   rv);
+						pFunctionList->C_Finalize(NULL);
 						OPENSSL_free(pSlotList);
 						goto err;
 					}
@@ -1328,6 +1332,7 @@ static int pkcs11_init(ENGINE *e)
 	if (rv != CKR_OK) 
 	{
 		pkcs11_die(PKCS11_F_INIT, PKCS11_R_GETINFO, rv);
+		pFunctionList->C_Finalize(NULL);
 		goto err;
 	}
 
@@ -1347,6 +1352,7 @@ static int pkcs11_init(ENGINE *e)
 				if (rv != CKR_OK) 
 				{
 					pkcs11_die(PKCS11_F_INIT, PKCS11_R_GETSLOTLIST, rv);
+					pFunctionList->C_Finalize(NULL);
 					OPENSSL_free(pSlotList);
 					goto err;
 				}
@@ -1359,6 +1365,7 @@ static int pkcs11_init(ENGINE *e)
 					if (rv != CKR_OK)
 					{
 						pkcs11_die(PKCS11_F_INIT, PKCS11_R_GETSLOTINFO, rv);
+						pFunctionList->C_Finalize(NULL);
 						OPENSSL_free(pSlotList);
 						goto err;
 					}

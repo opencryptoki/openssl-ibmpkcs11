@@ -330,9 +330,9 @@ const EVP_CIPHER pkcs11_aes_128_ecb = {
 };
 const EVP_CIPHER pkcs11_aes_192_ecb = {
 	NID_aes_192_ecb,	/* NID */
-	24,			/* Block size */
+	16,			/* Block size */
 	24,			/* Key len */
-	24,			/* IV len */
+	16,			/* IV len */
 	EVP_CIPH_ECB_MODE,	/* flags */
 	pkcs11_aes_init_key,	/* init */
 	pkcs11_cipher,	/* do_cipher */
@@ -345,9 +345,9 @@ const EVP_CIPHER pkcs11_aes_192_ecb = {
 };
 const EVP_CIPHER pkcs11_aes_256_ecb = {
 	NID_aes_256_ecb,	/* NID */
-	32,			/* Block size */
+	16,			/* Block size */
 	32,			/* Key len */
-	32,			/* IV len */
+	16,			/* IV len */
 	EVP_CIPH_ECB_MODE,	/* flags */
 	pkcs11_aes_init_key,	/* init */
 	pkcs11_cipher,	/* do_cipher */
@@ -377,9 +377,9 @@ const EVP_CIPHER pkcs11_aes_128_cbc = {
 };
 const EVP_CIPHER pkcs11_aes_192_cbc = {
 	NID_aes_192_cbc,	/* NID */
-	24,			/* Block size */
+	16,			/* Block size */
 	24,			/* Key len */
-	24,			/* IV len */
+	16,			/* IV len */
 	EVP_CIPH_CBC_MODE,	/* flags */
 	pkcs11_aes_init_key,	/* init */
 	pkcs11_cipher,	/* do_cipher */
@@ -392,9 +392,9 @@ const EVP_CIPHER pkcs11_aes_192_cbc = {
 };
 const EVP_CIPHER pkcs11_aes_256_cbc = {
 	NID_aes_256_cbc,	/* NID */
-	32,			/* Block size */
+	16,			/* Block size */
 	32,			/* Key len */
-	32,			/* IV len */
+	16,			/* IV len */
 	EVP_CIPH_CBC_MODE,	/* flags */
 	pkcs11_aes_init_key,	/* init */
 	pkcs11_cipher,	/* do_cipher */

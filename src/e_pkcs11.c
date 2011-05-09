@@ -687,15 +687,6 @@ static int bind_pkcs11(ENGINE *e)
 
 	if (!ENGINE_set_id(e, engine_pkcs11_id) ||
 	    !ENGINE_set_name(e, engine_pkcs11_name) ||
-#if 0
-	    /* RSA functions are set below, in pre_init_pkcs11(), but only
-	     * when some token's mechanism list reports supporting RSA  */
-#ifndef OPENSSL_NO_RSA
-	    !ENGINE_set_RSA(e, &pkcs11_rsa) ||
-	    !ENGINE_set_load_privkey_function(e, pkcs11_load_privkey) ||
-	    !ENGINE_set_load_pubkey_function(e, pkcs11_load_pubkey) ||
-#endif
-#endif
 	    !ENGINE_set_RAND(e, &pkcs11_random) ||
 	    !ENGINE_set_init_function(e, pkcs11_init) ||
 	    !ENGINE_set_ciphers(e, pkcs11_engine_ciphers) ||
@@ -904,31 +895,6 @@ static long set_PKCS11_LIBNAME(const char *name)
 {
 	free_PKCS11_LIBNAME();
 	return ((PKCS11_LIBNAME = BUF_strdup(name)) != NULL ? 1 : 0);
-}
-
-int add_hw_token(struct _token *new_tok, CK_MECHANISM_TYPE mech, struct _token **list_head,
-		short *enabled, struct _token **next_ptr)
-{
-	CK_RV rv;
-	CK_MECHANISM_INFO mech_info;
-
-	rv = pFunctionList->C_GetMechanismInfo(new_tok->slot, mech, &mech_info);
-	if (rv != CKR_OK) {
-		pkcs11_die(PKCS11_F_ADDTOKEN, PKCS11_R_GETMECHANISMINFO, rv);
-	}
-
-	/* return 0 if not HW enabled */
-	if ((mech_info.flags & CKF_HW) == 0)
-		return 0;
-
-	if (!*enabled) {
-		*enabled = 1;
-		*next_ptr = *list_head;
-		*list_head = new_tok;
-	}
-
-	/* return 1 if HW enabled */
-	return 1;
 }
 
 /* Add new NID's based on this slot's token */
@@ -2500,34 +2466,6 @@ static int pkcs11_RSA_generate_key(RSA* rsa,
 	return pkcs11_RSA_generate_key_with_mechanism(rsa, &Mechanism, bits, bn_e, cb, token);
 }
 
-#if 0
-RSA* pkcs11_RSA_generate_tmp_key(int bits,unsigned long e_value,void (*callback)(int,int,void *),void *cb_arg)
-{
-	RSA		*rsa;
-	CK_MECHANISM	Mechanism = {CKM_RSA_PKCS_KEY_PAIR_GEN, NULL_PTR, 0};
-	CK_BBOOL	token = FALSE;
-	unsigned int	deleteKey;
-
-	DBG_fprintf("%s\n", __FUNCTION__);
-
-	rsa=RSA_new();
-	if (rsa == NULL)
-		return NULL;
-	else
-	{
-		if (pkcs11_RSA_generate_key_with_mechanism(rsa, &Mechanism, bits, e_value, callback, cb_arg, token))
-		{
-			deleteKey = TRUE;
-			RSA_set_ex_data(rsa, deletePubKeyOnFree, (void *)deleteKey);
-			RSA_set_ex_data(rsa, deletePrivKeyOnFree, (void *)deleteKey);
-			return rsa;
-		}
-		else
-			return NULL;
-	}
-}
-#endif
-
 /* The private is found from the public key stored in PEM format in "pubkey_file" */
 static EVP_PKEY *pkcs11_load_privkey(ENGINE* e, const char* pubkey_file,
 		UI_METHOD *ui_method, void *callback_data)
@@ -3060,21 +2998,14 @@ static int
 pkcs11_digest_copy(EVP_MD_CTX *out, const EVP_MD_CTX *in)
 {
 	struct pkcs11_digest_ctx *data = out->md_data;
-#if 0
-	struct pkcs11_digest_ctx *indata = in->md_data;
 
-	/* TODO: change this to a refcount */
-	data->data = (char *)OPENSSL_malloc(data->len);
-	memcpy(data->data, indata->data, data->len);
-#else
 	DBG_fprintf("%s, ref_cnt addr: %p, val: %d\n", __FUNCTION__, data->ref_cnt,
 		    *(data->ref_cnt));
 
 	*(data->ref_cnt) += 1;
-	
+
 	DBG_fprintf("%s, ref_cnt addr: %p, val: %d\n", __FUNCTION__, data->ref_cnt,
 		    *(data->ref_cnt));
-#endif
 
 	return 1;
 }

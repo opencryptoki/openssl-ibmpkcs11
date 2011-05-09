@@ -43,6 +43,10 @@ static ERR_STRING_DATA pkcs11_str_functs[]=
     {ERR_PACK(0,PKCS11_F_LOAD_PRIVKEY,0),    "PKCS11_LOAD_PRIVKEY"},
     {ERR_PACK(0,PKCS11_F_LOAD_PUBKEY,0),    "PKCS11_LOAD_PUBKEY"},
     {ERR_PACK(0,PKCS11_F_DIGESTCOPY,0),    "PKCS11_DIGESTCOPY"},
+    {ERR_PACK(0,PKCS11_F_GET_PKCS11_CIPHERS,0),	    "PKCS11_GET_PKCS11_CIPHERS"},
+    {ERR_PACK(0,PKCS11_F_GET_PKCS11_DIGESTS,0),	    "PKCS11_GET_PKCS11_DIGESTS"},
+    {ERR_PACK(0,PKCS11_F_ENGINE_CIPHERS,0),	    "PKCS11_ENGINE_CIPHERS"},
+    {ERR_PACK(0,PKCS11_F_ENGINE_DIGESTS,0),	    "PKCS11_ENGINE_DIGESTS"},
     {0,NULL}
 };
 
@@ -100,6 +104,9 @@ static ERR_STRING_DATA pkcs11_str_reasons[]=
     {PKCS11_R_NOTOKENS			     ,"no hardware tokens found"},
     {PKCS11_R_NOTOKENFORALGORITHM	     ,"no tokens available to accelerate algorithm"},
     {PKCS11_R_DIGEST			     ,"C_Digest failed"},
+    {PKCS11_R_TOKEN_NOT_AVAILABLE            ,"Token in requested slot is not available"},
+    {PKCS11_R_NO_SLOT_SELECTED		     ,"No slot selected, please add SLOT_ID=<num> to your"
+					      " openssl.cnf ibmpkcs11_section"},
     {0,NULL}
 };
 

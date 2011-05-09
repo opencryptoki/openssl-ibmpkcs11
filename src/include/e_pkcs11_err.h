@@ -47,6 +47,10 @@ void ERR_pkcs11_error(int function, int reason, char *file, int line);
 #define PKCS11_F_CIPHER_UPDATE 125
 #define PKCS11_F_PREINIT 126
 #define PKCS11_F_DIGESTCOPY 127
+#define PKCS11_F_ENGINE_DIGESTS 128
+#define PKCS11_F_ENGINE_CIPHERS 129
+#define PKCS11_F_GET_PKCS11_DIGESTS 130
+#define PKCS11_F_GET_PKCS11_CIPHERS 131
 
 /* Reason codes. */
 #define PKCS11_R_ALREADY_LOADED 100
@@ -101,4 +105,6 @@ void ERR_pkcs11_error(int function, int reason, char *file, int line);
 #define PKCS11_R_NOTOKENS 149
 #define PKCS11_R_NOTOKENFORALGORITHM 150
 #define PKCS11_R_DIGEST 151
+#define PKCS11_R_TOKEN_NOT_AVAILABLE 152
+#define PKCS11_R_NO_SLOT_SELECTED 153
 #endif

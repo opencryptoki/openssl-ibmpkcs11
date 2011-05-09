@@ -2,29 +2,18 @@
 #ifndef _HW_PKCS11_H_
 #define _HW_PKCS11_H_
 
-
-
+/* Number of NID's that exist in OpenSSL 1.0.0a */
+#define NUM_NID 893
 
 struct _token {
 	struct _token *token_next;	/* next token in list of all tokens */
-	CK_SLOT_ID slot;		/* slot ID of this token */
+	CK_SLOT_ID slot_id;		/* slot ID of this token */
+	int pkcs11_implemented_ciphers[NUM_NID];
+	int pkcs11_implemented_digests[NUM_NID];
 };
 
-/* Future:
- *   Lists for free (non-busy) rsa,des... tokens.
- */
-
 struct _token *pkcs11_token_list = NULL;
-
-struct _token *pkcs11_rsa_head = NULL;
-struct _token *pkcs11_des_head = NULL;
-struct _token *pkcs11_tdes_head = NULL;
-struct _token *pkcs11_sha_head = NULL;
-struct _token *pkcs11_dh_head = NULL;
-struct _token *pkcs11_aes_head = NULL;
-struct _token *pkcs11_ripemd_head = NULL;
-struct _token *pkcs11_ssl3_head = NULL;
-struct _token *pkcs11_md5_head = NULL;
+struct _token *pkcs11_token = NULL;
 
 enum alg_type { alg_rsa=1, alg_des, alg_tdes, alg_sha, alg_dh, alg_aes,
 		alg_ripemd, alg_ssl3, alg_md5, alg_rand,

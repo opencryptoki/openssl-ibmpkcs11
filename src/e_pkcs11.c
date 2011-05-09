@@ -142,15 +142,9 @@ static int pkcs11_engine_ciphers(ENGINE * e, const EVP_CIPHER ** cipher,
 static int pkcs11_engine_digests(ENGINE * e, const EVP_MD ** digest,
 		const int **nids, int nid);
 
-
-/* Number of NID's that exist in OpenSSL 1.0.0a */
-#define NUM_NID 893
-int pkcs11_implemented_ciphers[NUM_NID] = { 0, };
-int pkcs11_implemented_digests[NUM_NID] = { 0, };
-pid_t mypid = -1;
-
 /* The definitions for control commands specific to this engine */
 #define PKCS11_CMD_SO_PATH		ENGINE_CMD_BASE
+#define PKCS11_CMD_SLOT_ID		(ENGINE_CMD_BASE + 1)
 static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] =
 {
 	{ PKCS11_CMD_SO_PATH,
@@ -158,10 +152,13 @@ static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] =
 		"Specifies the path to the 'pkcs#11' shared library",
 		ENGINE_CMD_FLAG_STRING
 	},
+	{ PKCS11_CMD_SLOT_ID,
+		"SLOT_ID",
+		"Specifies the slot containing the token to use",
+		ENGINE_CMD_FLAG_NUMERIC
+	},
 	{0, NULL, NULL, 0}
 };
-
-
 
 #ifdef OPENSSL_NO_DYNAMIC_ENGINE
 static ENGINE *engine_pkcs11(void)
@@ -626,14 +623,19 @@ void pkcs11_atfork_init(void)
 struct token_session *pkcs11_getSession(void)
 {
 	CK_RV rv;
-	struct token_session *wrapper = OPENSSL_malloc(sizeof (struct token_session));
+	struct token_session *wrapper;
 
+	if (!pkcs11_token) {
+		PKCS11err(PKCS11_F_GETSESSION, PKCS11_R_NO_SLOT_SELECTED);
+		return NULL;
+	}
+
+	wrapper = OPENSSL_malloc(sizeof (struct token_session));
 	if (!wrapper) {
 		PKCS11err(PKCS11_F_GETSESSION, PKCS11_R_MALLOC_FAILURE);
 		return NULL;
 	}
-
-	wrapper->token = pkcs11_token_list;
+	wrapper->token = pkcs11_token;
 
 	if (!PKCS11_Initialized) {
 		rv = pFunctionList->C_Initialize(NULL);
@@ -644,7 +646,7 @@ struct token_session *pkcs11_getSession(void)
 		PKCS11_Initialized = 1;
 	}
 
-	rv = pFunctionList->C_OpenSession(wrapper->token->slot,
+	rv = pFunctionList->C_OpenSession(wrapper->token->slot_id,
 			CKF_SERIAL_SESSION | CKF_RW_SESSION,
 			NULL_PTR,
 			NULL_PTR,
@@ -755,7 +757,14 @@ static int
 get_pkcs11_ciphers(const int **retnids)
 {
 	static int nids[PKCS11_MAX_ALGS];
-	int i, count = 0;
+	int i, count = 0, *pkcs11_implemented_ciphers;
+
+	if (pkcs11_token)
+		pkcs11_implemented_ciphers = pkcs11_token->pkcs11_implemented_ciphers;
+	else {
+		PKCS11err(PKCS11_F_GET_PKCS11_CIPHERS, PKCS11_R_NO_SLOT_SELECTED);
+		return 0;
+	}
 
 	memset(nids, 0, sizeof(nids));
 	*retnids = NULL;
@@ -774,7 +783,14 @@ static int
 get_pkcs11_digests(const int **retnids)
 {
 	static int nids[PKCS11_MAX_ALGS];
-	int i, count = 0;
+	int i, count = 0, *pkcs11_implemented_digests;
+
+	if (pkcs11_token)
+		pkcs11_implemented_digests = pkcs11_token->pkcs11_implemented_digests;
+	else {
+		PKCS11err(PKCS11_F_GET_PKCS11_DIGESTS, PKCS11_R_NO_SLOT_SELECTED);
+		return 0;
+	}
 
 	memset(nids, 0, sizeof(nids));
 	*retnids = NULL;
@@ -799,10 +815,15 @@ static int pkcs11_engine_ciphers(ENGINE * e, const EVP_CIPHER ** cipher,
 	if (!cipher)
 		return get_pkcs11_ciphers(nids);
 
+	if (!pkcs11_token) {
+		PKCS11err(PKCS11_F_ENGINE_CIPHERS, PKCS11_R_NO_SLOT_SELECTED);
+		return 0;
+	}
+
 	/* If the algorithm requested was not added to the list at
 	 * engine init time, don't return a reference to that structure.
 	 */
-	if (pkcs11_implemented_ciphers[nid]) {
+	if (pkcs11_token->pkcs11_implemented_ciphers[nid]) {
 		switch (nid) {
 			case NID_aes_128_ecb:
 				*cipher = &pkcs11_aes_128_ecb;
@@ -845,11 +866,15 @@ static int pkcs11_engine_ciphers(ENGINE * e, const EVP_CIPHER ** cipher,
 static int pkcs11_engine_digests(ENGINE * e, const EVP_MD ** digest,
 		const int **nids, int nid)
 {
-
 	if (!digest)
 		return get_pkcs11_digests(nids);
 
-	if (pkcs11_implemented_digests[nid]) {
+	if (!pkcs11_token) {
+		PKCS11err(PKCS11_F_ENGINE_DIGESTS, PKCS11_R_NO_SLOT_SELECTED);
+		return 0;
+	}
+
+	if (pkcs11_token->pkcs11_implemented_digests[nid]) {
 		switch (nid) {
 			case NID_ripemd160:
 				*digest = &pkcs11_ripemd;
@@ -898,7 +923,7 @@ static long set_PKCS11_LIBNAME(const char *name)
 }
 
 /* Add new NID's based on this slot's token */
-void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
+void pkcs11_regToken(ENGINE *e, struct _token *tok)
 {
 	CK_RV rv;
 	CK_ULONG mech_cnt;
@@ -907,7 +932,10 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 
 	DBG_fprintf("%s\n", __FUNCTION__);
 
-	rv = pFunctionList->C_GetMechanismList(slot_id, NULL_PTR, &mech_cnt);
+	if (!tok)
+		return;
+
+	rv = pFunctionList->C_GetMechanismList(tok->slot_id, NULL_PTR, &mech_cnt);
 	if (rv != CKR_OK) {
 		pkcs11_die(PKCS11_F_ADDTOKEN, PKCS11_R_GETMECHANISMLIST, rv);
 		goto err;
@@ -920,7 +948,7 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 		goto err;
 	}
 
-	rv = pFunctionList->C_GetMechanismList(slot_id, mech_list, &mech_cnt);
+	rv = pFunctionList->C_GetMechanismList(tok->slot_id, mech_list, &mech_cnt);
 	if (rv != CKR_OK) {
 		pkcs11_die(PKCS11_F_ADDTOKEN, PKCS11_R_GETMECHANISMLIST, rv);
 		goto err_free;
@@ -953,12 +981,12 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 			case CKM_X9_42_DH_PARAMETER_GEN:
 				break;
 			case CKM_DES_ECB:
-				pkcs11_implemented_ciphers[NID_des_ecb] = 1;
+				tok->pkcs11_implemented_ciphers[NID_des_ecb] = 1;
 				num_cipher_nids++;
 				break;
 			case CKM_DES_CBC:
 			case CKM_DES_CBC_PAD:
-				pkcs11_implemented_ciphers[NID_des_cbc] = 1;
+				tok->pkcs11_implemented_ciphers[NID_des_cbc] = 1;
 				num_cipher_nids++;
 				break;
 			case CKM_DES_KEY_GEN:
@@ -966,12 +994,12 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 			case CKM_DES_MAC_GENERAL:
 				break; 
 			case CKM_DES3_ECB:
-				pkcs11_implemented_ciphers[NID_des_ede3_ecb] = 1;
+				tok->pkcs11_implemented_ciphers[NID_des_ede3_ecb] = 1;
 				num_cipher_nids++;
 				break;
 			case CKM_DES3_CBC:
 			case CKM_DES3_CBC_PAD:
-				pkcs11_implemented_ciphers[NID_des_ede3_cbc] = 1;
+				tok->pkcs11_implemented_ciphers[NID_des_ede3_cbc] = 1;
 				num_cipher_nids++;
 				break;
 			case CKM_DES3_KEY_GEN:
@@ -979,81 +1007,81 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 			case CKM_DES3_MAC_GENERAL:
 				break; 
 			case CKM_SHA_1:
-				pkcs11_implemented_digests[NID_sha1] = 1;
+				tok->pkcs11_implemented_digests[NID_sha1] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_SHA_1_HMAC:
 			case CKM_SHA_1_HMAC_GENERAL:
-				pkcs11_implemented_digests[NID_hmacWithSHA1] = 1;
+				tok->pkcs11_implemented_digests[NID_hmacWithSHA1] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_PBA_SHA1_WITH_SHA1_HMAC:
 			case CKM_SHA1_KEY_DERIVATION:
 			case CKM_SHA1_RSA_PKCS:
-				pkcs11_implemented_digests[NID_sha1WithRSAEncryption] = 1;
+				tok->pkcs11_implemented_digests[NID_sha1WithRSAEncryption] = 1;
 				num_digest_nids++;
 				break; 
 				
 			case CKM_SHA224:
-				pkcs11_implemented_digests[NID_sha224] = 1;
+				tok->pkcs11_implemented_digests[NID_sha224] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_SHA224_KEY_DERIVATION:
 			case CKM_SHA224_RSA_PKCS:
-				pkcs11_implemented_digests[NID_sha224WithRSAEncryption] = 1;
+				tok->pkcs11_implemented_digests[NID_sha224WithRSAEncryption] = 1;
 				num_digest_nids++;
 				break; 
 				
 				
 			case CKM_SHA256:
-				pkcs11_implemented_digests[NID_sha256] = 1;
+				tok->pkcs11_implemented_digests[NID_sha256] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_SHA256_KEY_DERIVATION:
 			case CKM_SHA256_RSA_PKCS:
-				pkcs11_implemented_digests[NID_sha256WithRSAEncryption] = 1;
+				tok->pkcs11_implemented_digests[NID_sha256WithRSAEncryption] = 1;
 				num_digest_nids++;
 				break; 
 				
 			case CKM_SHA384:
-				pkcs11_implemented_digests[NID_sha384] = 1;
+				tok->pkcs11_implemented_digests[NID_sha384] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_SHA384_KEY_DERIVATION:
 			case CKM_SHA384_RSA_PKCS:
-				pkcs11_implemented_digests[NID_sha384WithRSAEncryption] = 1;
+				tok->pkcs11_implemented_digests[NID_sha384WithRSAEncryption] = 1;
 				num_digest_nids++;
 				break; 
 			case CKM_SHA512:
-				pkcs11_implemented_digests[NID_sha512] = 1;
+				tok->pkcs11_implemented_digests[NID_sha512] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_SHA512_KEY_DERIVATION:
 			case CKM_SHA512_RSA_PKCS:
-				pkcs11_implemented_digests[NID_sha512WithRSAEncryption] = 1;
+				tok->pkcs11_implemented_digests[NID_sha512WithRSAEncryption] = 1;
 				num_digest_nids++;
 				break; 
 				
 			case CKM_AES_ECB:
-				pkcs11_implemented_ciphers[NID_aes_128_ecb] = 1;
-				pkcs11_implemented_ciphers[NID_aes_192_ecb] = 1;
-				pkcs11_implemented_ciphers[NID_aes_256_ecb] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_128_ecb] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_192_ecb] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_256_ecb] = 1;
 				num_cipher_nids += 3;
 				break;
 			case CKM_AES_KEY_GEN:
 				break;
 			case CKM_AES_CBC_PAD:
 			case CKM_AES_CBC:
-				pkcs11_implemented_ciphers[NID_aes_128_cbc] = 1;
-				pkcs11_implemented_ciphers[NID_aes_192_cbc] = 1;
-				pkcs11_implemented_ciphers[NID_aes_256_cbc] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_128_cbc] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_192_cbc] = 1;
+				tok->pkcs11_implemented_ciphers[NID_aes_256_cbc] = 1;
 				num_cipher_nids += 3;
 				break;
 			case CKM_AES_MAC:
 			case CKM_AES_MAC_GENERAL:
 				break; 
 			case CKM_MD5:
-				pkcs11_implemented_digests[NID_md5] = 1;
+				tok->pkcs11_implemented_digests[NID_md5] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_MD5_HMAC:
@@ -1065,7 +1093,7 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 			case CKM_SSL3_SHA1_MAC:
 				break;
 			case CKM_RIPEMD160:
-				pkcs11_implemented_digests[NID_ripemd160] = 1;
+				tok->pkcs11_implemented_digests[NID_ripemd160] = 1;
 				num_digest_nids++;
 				break;
 			case CKM_RIPEMD160_HMAC:
@@ -1074,7 +1102,7 @@ void pkcs11_regToken(ENGINE *e, CK_SLOT_ID slot_id)
 			default:
 				DBG_fprintf("The token in slot %lx has reported that it can "
 					    "perform\nmechanism 0x%lx, which is not available to "
-					    "accelerate in openssl.\n", slot_id, mech_list[i]);
+					    "accelerate in openssl.\n", tok->slot_id, mech_list[i]);
 				break;
 		}
 	}
@@ -1089,20 +1117,22 @@ err:
  * This is called during the bind_pkcs11, in other words after openSSL has
  * decided to use us for some operation.
  */
-void pkcs11_addToken(CK_SLOT_ID slot_id)
+struct _token *pkcs11_addToken(CK_SLOT_ID slot_id)
 {
 	struct _token *new_tok = (struct _token *) OPENSSL_malloc(sizeof(struct _token));
 
 	if (new_tok == NULL) {
 		PKCS11err(PKCS11_F_ADDTOKEN, PKCS11_R_MALLOC_FAILURE);
-		return;
+		return NULL;
 	}
 
 	memset(new_tok, 0, sizeof(struct _token));
-	new_tok->slot = slot_id;
+	new_tok->slot_id = slot_id;
 
 	new_tok->token_next = pkcs11_token_list;
 	pkcs11_token_list = new_tok;
+
+	return new_tok;
 }
 
 /*
@@ -1119,6 +1149,7 @@ static int pre_init_pkcs11(ENGINE *e)
 	CK_SLOT_ID_PTR pSlotList;
 	CK_ULONG ulSlotCount;
 	CK_SLOT_INFO slotInfo;
+	struct _token *tok;
 	int i;
 
 	if(pkcs11_dso)
@@ -1209,7 +1240,11 @@ static int pre_init_pkcs11(ENGINE *e)
 						goto err;
 					}
 
-					pkcs11_regToken(e, pSlotList[i]);
+					/* we're mallocing memory here that may need to be freed
+					 * if openssl chooses not to use us. We'll free it in
+					 * the library destructor, pkcs11_engine_destructor */
+					tok = pkcs11_addToken(pSlotList[i]);
+					pkcs11_regToken(e, tok);
 				}
 				OPENSSL_free(pSlotList);
 			}
@@ -1427,6 +1462,8 @@ err:
 static int pkcs11_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)())
 {
 	int initialized = ((pkcs11_dso == NULL) ? 0 : 1);
+	struct _token *tok;
+
 	switch(cmd)
 	{
 		case PKCS11_CMD_SO_PATH:
@@ -1441,6 +1478,18 @@ static int pkcs11_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)())
 				return 0;
 			}
 			return set_PKCS11_LIBNAME((const char*)p);
+		case PKCS11_CMD_SLOT_ID:
+			tok = pkcs11_token_list;
+			while (tok) {
+				if (tok->slot_id == i) {
+					pkcs11_token = tok;
+					DBG_fprintf("slot %ld selected\n", i);
+					return 1;
+				}
+				tok = tok->token_next;
+			}
+			PKCS11err(PKCS11_F_CTRL, PKCS11_R_TOKEN_NOT_AVAILABLE);
+			return 0;
 		default:
 			break;
 	}
@@ -3015,6 +3064,22 @@ pkcs11_digest_cleanup(EVP_MD_CTX *ctx)
 {
 	return 1;
 }
+
+void pkcs11_engine_destructor(void) __attribute__((destructor));
+/* the destructor handles the case where openssl called bind_pkcs11, which calls pre_init_pkcs11,
+ * which then found some PCKS#11 slots and called pkcs11_addToken, but then openssl decided not
+ * to use us */
+void pkcs11_engine_destructor(void)
+{
+	struct _token *tmp;
+
+	while (pkcs11_token_list) {
+		tmp = pkcs11_token_list->token_next;
+		OPENSSL_free(pkcs11_token_list);
+		pkcs11_token_list = tmp;
+	}
+}
+
 #endif
 #endif
 

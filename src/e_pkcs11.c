@@ -585,10 +585,7 @@ extern CK_RV C_InitializeRpc (CK_CHAR_PTR, CK_CHAR_PTR, CK_ULONG_PTR);
 #elif defined(GPKCS11) 
 static const char def_PKCS11_LIBNAME[] = "gpkcs11";
 #elif defined(OPENCRYPTOKI)
-/* OPENCRYPTOKI is the default, specified on the command line as part of the build */
-static char *def_PKCS11_LIBNAME = sizeof(long) == 8 ?
-"/usr/lib64/pkcs11/PKCS11_API.so":
-"/usr/lib/pkcs11/PKCS11_API.so";
+static char *def_PKCS11_LIBNAME = "opencryptoki";
 #else
 static const char def_PKCS11_LIBNAME[] = "pkcs11";
 #endif

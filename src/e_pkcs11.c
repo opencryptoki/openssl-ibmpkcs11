@@ -1383,7 +1383,7 @@ err:
 static int pkcs11_destroy(ENGINE *e)
 {
 	DBG_fprintf("%s: called\n", __FUNCTION__);
-	fflush(stderr);
+
 	free_PKCS11_LIBNAME();
 	ERR_unload_pkcs11_strings();
 	return 1;

@@ -20,6 +20,25 @@ ibmpkcs11 = ibmpkcs11_section
 SLOT_ID=0
 dynamic_path = @LIBDIR@/libibmpkcs11.so
 engine_id = ibmpkcs11
-#default_algorithms = ALL
-default_algorithms = RAND,RSA,DSA,DH,CIPHERS,DIGESTS
+#
+# The following algorithms will be enabled by these parameters
+# to the default_algorithms line. Any combination of these is valid,
+# with "ALL" denoting the same as all of them in a comma separated
+# list.
+#
+# RSA
+# - RSA encrypt, decrypt, sign and verify, key lengths 512-4096
+#
+# RAND
+# - Hardware random number generation
+#
+# CIPHERS
+# - DES-ECB, DES-CBC, DES-EDE3, DES-EDE3-CBC, AES-128-ECB, AES-128-CBC,
+#   AES-192-ECB, AES-192-CBC, AES-256-ECB, AES-256-CBC symmetric crypto
+#
+# DIGESTS
+# - SHA1, SHA256 digests
+#
+default_algorithms = ALL
+#default_algorithms = RAND,RSA,CIPHERS,DIGESTS
 init = 1

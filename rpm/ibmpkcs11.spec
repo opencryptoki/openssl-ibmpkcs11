@@ -5,13 +5,13 @@
 # This file and all modifications and additions to the pristine
 # package are under the same license as the package itself.
 #
-# Copyright (c) 2010 IBM Corp.
+# Copyright (c) 2010,2011 IBM Corp.
 #
 
 Name:           openssl-ibmpkcs11
 Summary:        An IBM PKCS#11 OpenSSL dynamic engine
-Version:        0.1
-Release:        1
+Version:        1.0.0
+Release:        0
 License:        Other License(s), see package, IBM Public License
 Group:          Hardware/Other
 Source:         %{name}-%{version}.tar.bz2
@@ -49,5 +49,8 @@ rm -rf %{buildroot}
 %{_libdir}/openssl/engines/libibmpkcs11.*
 
 %changelog
+* Mon May 9 2011 - key@linux.vnet.ibm.com
+- Updated version number, copyright
+
 * Fri Jul 9 2010 - yoder1@us.ibm.com
 - initial version

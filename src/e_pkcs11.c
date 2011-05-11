@@ -596,6 +596,7 @@ static int rsaPubKey = -1;
 static int rsaPrivKey = -1;
 static int deletePubKeyOnFree = -1;
 static int deletePrivKeyOnFree = -1;
+static int pkcs11Session = -1;
 #endif
 
 static int PKCS11_Initialized = 0;
@@ -1394,6 +1395,8 @@ static int pkcs11_init(ENGINE *e)
 		deletePubKeyOnFree = RSA_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 	if (deletePrivKeyOnFree == -1)
 		deletePrivKeyOnFree = RSA_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+	if (pkcs11Session == -1)
+		pkcs11Session = RSA_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 #endif
 
 	if (pkcs11_token_list == NULL)
@@ -1710,10 +1713,16 @@ static int pkcs11_RSA_public_encrypt(int flen,
 		return -1;
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+	}
 
 	hPublicKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPubKey);
 	if (hPublicKey == CK_INVALID_HANDLE)
@@ -1789,10 +1798,16 @@ static int pkcs11_RSA_private_encrypt(int flen,
 		return -1;
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+	}
 
 	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
 	if (hPrivateKey == CK_INVALID_HANDLE)
@@ -1867,10 +1882,16 @@ static int pkcs11_RSA_private_decrypt(int flen,
 		return -1;
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+	}
 
 	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
 	if (hPrivateKey == CK_INVALID_HANDLE)
@@ -1938,10 +1959,16 @@ static int pkcs11_RSA_public_decrypt(int flen,
 		return -1;
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+	}
 
 	hPublicKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPubKey);
 	if (hPublicKey == CK_INVALID_HANDLE)
@@ -1982,9 +2009,17 @@ out:
 
 static int pkcs11_RSA_init(RSA *rsa)
 {
+	struct token_session *wrapper;
+
 	DBG_fprintf("%s\n", __FUNCTION__);
+
+	wrapper = pkcs11_getSession();
+	if (wrapper)
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)wrapper->session);
+
 	rsa->flags |=  RSA_FLAG_SIGN_VER;
 	RSA_blinding_off(rsa);
+
 	return 1;
 }
 
@@ -2011,10 +2046,15 @@ static int pkcs11_RSA_finish(RSA *rsa)
 	deletePrivKey = (long)RSA_get_ex_data(rsa, deletePrivKeyOnFree);
 	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+	}
 
 	if ((deletePrivKey) && (hPrivateKey != CK_INVALID_HANDLE))
 	{
@@ -2046,6 +2086,9 @@ static int pkcs11_RSA_finish(RSA *rsa)
 		deletePubKey = FALSE;
 		RSA_set_ex_data(rsa, deletePubKeyOnFree, (void *)deletePubKey);
 	}
+
+	rv = pFunctionList->C_CloseSession(session);
+	RSA_set_ex_data(rsa, pkcs11Session, (void *)CK_INVALID_HANDLE);
 	err = 1;
 out:
 	OPENSSL_free(wrapper);
@@ -2134,10 +2177,16 @@ static int pkcs11_RSA_sign(int type,
 		i2d_X509_SIG(&sig,&p);
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data((RSA *)rsa, pkcs11Session, (void *)session);
+	}
 
 	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
 	if (hPrivateKey == CK_INVALID_HANDLE)
@@ -2265,10 +2314,16 @@ static int pkcs11_RSA_verify(int type,
 		i2d_X509_SIG(&sig,&p);
 	}
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data((RSA *)rsa, pkcs11Session, (void *)session);
+	}
 
 	hPublicKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPubKey);
 	if (hPublicKey == CK_INVALID_HANDLE)
@@ -2368,10 +2423,16 @@ static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 	aPrivateKeyTemplate[1].ulValueLen = sizeof(token);
 	aPrivateKeyTemplate[1].pValue = &token;
 
-	wrapper = pkcs11_getSession();
-	if (!wrapper)
-		return 0;
-	session = wrapper->session;
+	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+	if (session == CK_INVALID_HANDLE || !session) {
+		wrapper = pkcs11_getSession();
+		if (!wrapper)
+			return 0;
+
+		DBG_fprintf("%d: created new session\n", __LINE__);
+		session = wrapper->session;
+		RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+	}
 
 	rv = pFunctionList->C_GenerateKeyPair(session,
 			pMechanism,
@@ -2538,10 +2599,16 @@ static EVP_PKEY *pkcs11_load_privkey(ENGINE* e, const char* pubkey_file,
 				struct token_session *wrapper = NULL;
 				CK_SESSION_HANDLE session;
 
-				wrapper = pkcs11_getSession();
-				if (!wrapper)
-					return 0;
-				session = wrapper->session;
+				session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+				if (session == CK_INVALID_HANDLE || !session) {
+					wrapper = pkcs11_getSession();
+					if (!wrapper)
+						return 0;
+
+					DBG_fprintf("%d: created new session\n", __LINE__);
+					session = wrapper->session;
+					RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+				}
 
 				hPrivateKey = pkcs11_FindOrCreateKey(session, rsa, CKO_PRIVATE_KEY, true);
 				if (hPrivateKey == CK_INVALID_HANDLE)
@@ -2583,10 +2650,16 @@ static EVP_PKEY *pkcs11_load_pubkey(ENGINE* e, const char* pubkey_file,
 				struct token_session *wrapper = NULL;
 				CK_SESSION_HANDLE session;
 
-				wrapper = pkcs11_getSession();
-				if (!wrapper)
-					return 0;
-				session = wrapper->session;
+				session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
+				if (session == CK_INVALID_HANDLE || !session) {
+					wrapper = pkcs11_getSession();
+					if (!wrapper)
+						return 0;
+
+					DBG_fprintf("%d: created new session\n", __LINE__);
+					session = wrapper->session;
+					RSA_set_ex_data(rsa, pkcs11Session, (void *)session);
+				}
 
 				hPublicKey = pkcs11_FindOrCreateKey(session, rsa, CKO_PUBLIC_KEY, true);
 				if (hPublicKey == CK_INVALID_HANDLE)

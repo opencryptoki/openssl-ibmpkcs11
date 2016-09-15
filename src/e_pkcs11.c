@@ -886,6 +886,18 @@ static int pkcs11_engine_digests(ENGINE * e, const EVP_MD ** digest,
 			case NID_sha1:
 				*digest = &pkcs11_sha1;
 				break;
+			case NID_sha224:
+				*digest = &pkcs11_sha224;
+				break;
+			case NID_sha256:
+				*digest = &pkcs11_sha256;
+				break;
+			case NID_sha384:
+				*digest = &pkcs11_sha384;
+				break;
+			case NID_sha512:
+				*digest = &pkcs11_sha512;
+				break;
 			default:
 				*digest = NULL;
 				break;
@@ -2806,6 +2818,14 @@ static inline int get_mech(int alg, EVP_CIPHER_CTX *ctx)
 
 		case alg_sha:
 			return CKM_SHA_1;
+		case alg_sha224:
+			return CKM_SHA224;
+		case alg_sha256:
+			return CKM_SHA256;
+		case alg_sha384:
+			return CKM_SHA384;
+		case alg_sha512:
+			return CKM_SHA512;
 		case alg_md5:
 			return CKM_MD5;
 		case alg_ripemd:
@@ -3057,35 +3077,6 @@ pkcs11_digest_finish(EVP_MD_CTX *ctx, unsigned char *md)
 
 	if (!wrapper)
 		goto out;
-
-	switch (alg) {
-		case alg_sha:
-			mech = CKM_SHA_1;
-			break;
-		case alg_sha224:
-			mech = CKM_SHA224;
-			break;
-		case alg_sha256:
-			mech = CKM_SHA256;
-			break;
-		case alg_sha384:
-			mech = CKM_SHA384;
-			break;
-		case alg_sha512:
-			mech = CKM_SHA512;
-			break;
-		case alg_md5:
-			mech = CKM_MD5;
-			break;
-		case alg_ripemd:
-			mech = CKM_RIPEMD160;
-			break;
-		default:
-			PKCS11err(PKCS11_F_DIGESTFINISH, PKCS11_R_UNKNOWN_ALGORITHM_TYPE);
-			ERR_add_error_data(1, alg_to_string(alg));
-			goto out_endsession;
-			break;
-	}
 
 	rv = pFunctionList->C_DigestInit(wrapper->session, &mechanism);
 	if (rv != CKR_OK) {

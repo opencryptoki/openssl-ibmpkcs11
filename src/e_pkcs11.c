@@ -408,7 +408,7 @@ const EVP_MD pkcs11_sha1 = {
        NID_sha1,
        NID_sha1WithRSAEncryption,
        SHA_DIGEST_LENGTH,
-       0,
+       EVP_MD_FLAG_PKEY_METHOD_SIGNATURE,
        pkcs11_sha1_init,
        pkcs11_digest_update,
        pkcs11_digest_finish, /* final */
@@ -422,7 +422,7 @@ const EVP_MD pkcs11_sha224 = {
        NID_sha224,
        NID_sha224WithRSAEncryption,
        SHA224_DIGEST_LENGTH,
-       0,
+       EVP_MD_FLAG_PKEY_METHOD_SIGNATURE,
        pkcs11_sha224_init,
        pkcs11_digest_update,
        pkcs11_digest_finish, /* final */
@@ -436,7 +436,7 @@ const EVP_MD pkcs11_sha256 = {
        NID_sha256,
        NID_sha256WithRSAEncryption,
        SHA256_DIGEST_LENGTH,
-       0,
+       EVP_MD_FLAG_PKEY_METHOD_SIGNATURE,
        pkcs11_sha256_init,
        pkcs11_digest_update,
        pkcs11_digest_finish, /* final */
@@ -450,7 +450,7 @@ const EVP_MD pkcs11_sha384 = {
        NID_sha384,
        NID_sha384WithRSAEncryption,
        SHA384_DIGEST_LENGTH,
-       0,
+       EVP_MD_FLAG_PKEY_METHOD_SIGNATURE,
        pkcs11_sha384_init,
        pkcs11_digest_update,
        pkcs11_digest_finish, /* final */
@@ -464,7 +464,7 @@ const EVP_MD pkcs11_sha512 = {
        NID_sha512,
        NID_sha512WithRSAEncryption,
        SHA512_DIGEST_LENGTH,
-       0,
+       EVP_MD_FLAG_PKEY_METHOD_SIGNATURE,
        pkcs11_sha512_init,
        pkcs11_digest_update,
        pkcs11_digest_finish, /* final */

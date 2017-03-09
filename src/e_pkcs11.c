@@ -202,17 +202,13 @@ IMPLEMENT_DYNAMIC_BIND_FN(bind_helper)
  *    or cleanup.
  *
  *   For digests, we use digest_init to initialize a context
- *    struct, digest_update to append data to the data field within
- *    that struct, finalize() to call C_Digest() on all the data
- *    at once, and cleanup() to free the context struct.
- *   The digest approach is part of the openbsd implementation.  We
- *    do not do anything about the potential EVP_MD_FLAG_ONESHOT
- *    condition in update(), because openssl will still call finalize
- *    after that.
+ *    struct, digest_update to call C_DigestUpdate on the data that
+ *    we are receiving, digest_finish to call C_DigestFinal(), and
+ *    cleanup() to free the context struct.
  */
 
 /* 
- * Each cipher/digest action requires a new session.  We store the
+ * Each cipher action requires a new session.  We store the
  * session and its token in the context->cipher_data void* using
  * this struct
  */
@@ -223,24 +219,24 @@ struct token_session {
 
 /*
  * For digests:
- * We follow the example of openbsd_hw.c: digest_update just builds up
- * an array of what to process.  final() runs the digest on that data.
- * TODO: In order to prevent memory problems when we have a huge input,
- * we may want to trigger a do_digest when len gets too big.
+ * We call digest_init to start the context, digest_update
+ * to start computing the digest on the data that is being
+ * received and digest_finish to finish the digest operation.
  */
-#define PKCS11_DIGEST_BLOCK_SIZE 4096
 struct pkcs11_digest_ctx {
 	int alg;
-	char *data;
 	int len;
-	int size; /* alloc'd size of data so far */
-	int *ref_cnt; /* number of references to this digest operation */
+	int ref_cnt; /* number of references to this digest operation */
+	struct _token *token;
+	CK_SESSION_HANDLE session;
+	CK_BYTE_PTR state;
+	CK_ULONG ulStateLen;
 };
 
 /********/
 
 #define CIPHER_DATA(ctx) ((struct token_session *)(ctx->cipher_data))
-#define MD_DATA(ctx) ((struct token_session *)(ctx->md_data))
+#define MD_DATA(ctx) ((struct pkcs11_digest_ctx *)(ctx->md_data))
 
 static int num_cipher_nids = 0;
 static int num_digest_nids = 0;
@@ -1520,8 +1516,8 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 {
 	CK_RV rv;
 	CK_OBJECT_HANDLE hKey = CK_INVALID_HANDLE;
-	int ret=0;
 	CK_ULONG Matches;
+	int ret=0;
 	CK_KEY_TYPE kType = CKK_RSA;
 	CK_ULONG ulKeyAttributeCount;
 	CK_ATTRIBUTE  pubKeyTemplate[] =
@@ -3022,17 +3018,32 @@ pkcs11_ripemd_init(EVP_MD_CTX *ctx)
 static inline int
 pkcs11_digest_init(EVP_MD_CTX *ctx, int alg)
 {
-	struct pkcs11_digest_ctx *ctx_data = ctx->md_data;
+	CK_RV rv;
+	struct token_session *wrapper = pkcs11_getSession();
+
+	if (!wrapper)
+		return 0;
+
+	MD_DATA(ctx)->token = wrapper->token;
+	MD_DATA(ctx)->session = wrapper->session;
+	OPENSSL_free(wrapper);
 
 	DBG_fprintf("%s, alg = %d\n", __FUNCTION__, alg);
 
-	memset(ctx_data, 0, sizeof(struct pkcs11_digest_ctx));
-	ctx_data->alg = alg;
-	ctx_data->ref_cnt = OPENSSL_malloc(sizeof(int));
+	MD_DATA(ctx)->alg = alg;
+	MD_DATA(ctx)->ref_cnt = 0;
+	MD_DATA(ctx)->state = NULL;
 
-	DBG_fprintf("%s, ref_cnt = %p\n", __FUNCTION__, ctx_data->ref_cnt);
+	CK_MECHANISM_TYPE mech = get_mech(MD_DATA(ctx)->alg, NULL);
+	CK_MECHANISM mechanism = {mech, NULL, 0};
 
-	*ctx_data->ref_cnt = 0;
+	rv = pFunctionList->C_DigestInit(MD_DATA(ctx)->session, &mechanism);
+	if (rv != CKR_OK) {
+		DBG_fprintf("failed init\n");
+		pkcs11_die(PKCS11_F_DIGESTFINISH, PKCS11_R_DIGESTINIT, rv);
+		pFunctionList->C_CloseSession(MD_DATA(ctx)->session);
+		return 0;
+	}
 
 	return 1;
 }
@@ -3040,7 +3051,7 @@ pkcs11_digest_init(EVP_MD_CTX *ctx, int alg)
 static int
 pkcs11_digest_update(EVP_MD_CTX *ctx, const void *in, size_t len)
 {
-	struct pkcs11_digest_ctx *ctx_data;
+	CK_RV rv;
 
 	DBG_fprintf("%s, len = %lu\n", __FUNCTION__, len);
 
@@ -3048,17 +3059,25 @@ pkcs11_digest_update(EVP_MD_CTX *ctx, const void *in, size_t len)
 		PKCS11err(PKCS11_F_DIGESTUPDATE, PKCS11_R_PASSED_NULL_PARAMETER);
 		return 0;
 	}
-
-	ctx_data = (struct pkcs11_digest_ctx *)MD_DATA(ctx);
 	
-	while (len + ctx_data->len > ctx_data->size) {
-		ctx_data->size += PKCS11_DIGEST_BLOCK_SIZE;
-		ctx_data->data = realloc(ctx_data->data, ctx_data->size);
+	if(MD_DATA(ctx)->state != NULL){
+		pFunctionList->C_SetOperationState(MD_DATA(ctx)->session,
+						   MD_DATA(ctx)->state,
+						   MD_DATA(ctx)->ulStateLen,
+						   0, 0);
+		MD_DATA(ctx)->state = NULL;
 	}
 
-	memcpy(ctx_data->data + ctx_data->len, in, len);
-	ctx_data->len += len;
+	rv = pFunctionList->C_DigestUpdate(MD_DATA(ctx)->session,
+					   (CK_BYTE_PTR)in, len);
+	if (rv != CKR_OK) {
+		DBG_fprintf("failed update\n");
+		pkcs11_die(PKCS11_F_DIGESTUPDATE, PKCS11_R_DIGESTUPDATE, rv);
+		return 0;
+	}
 	
+	MD_DATA(ctx)->len += len;
+
 	return 1;
 }
 
@@ -3067,58 +3086,49 @@ pkcs11_digest_finish(EVP_MD_CTX *ctx, unsigned char *md)
 {
 	CK_ULONG len = EVP_MD_CTX_size(ctx);
 	CK_RV rv;
-	struct pkcs11_digest_ctx *data = (struct pkcs11_digest_ctx *)MD_DATA(ctx);
-	int ret = 0, alg = data->alg;
-	struct token_session *wrapper = pkcs11_getSession();
-	CK_MECHANISM_TYPE mech = get_mech(alg, NULL);
-	CK_MECHANISM mechanism = {mech, NULL, 0};
+	int ret = 0;
 
 	DBG_fprintf("%s\n", __FUNCTION__);
 
-	if (!wrapper)
-		goto out;
-
-	rv = pFunctionList->C_DigestInit(wrapper->session, &mechanism);
+	rv = pFunctionList->C_DigestFinal(MD_DATA(ctx)->session, md, &len);
 	if (rv != CKR_OK) {
-		pkcs11_die(PKCS11_F_DIGESTFINISH, PKCS11_R_DIGESTINIT, rv);
+		DBG_fprintf("failed final\n");
+		pkcs11_die(PKCS11_F_DIGESTFINISH, PKCS11_R_DIGESTFINAL, rv);
 		goto out_endsession;
 	}
 
-	rv = pFunctionList->C_Digest(wrapper->session, (CK_BYTE_PTR)data->data, data->len, md,
-				     &len);
-	if (rv != CKR_OK) {
-		pkcs11_die(PKCS11_F_DIGESTFINISH, PKCS11_R_DIGEST, rv);
-		goto out_endsession;
+	if (MD_DATA(ctx)->ref_cnt) {
+		MD_DATA(ctx)->ref_cnt -= 1;
+		return 1;
 	}
 
-	if (*data->ref_cnt == 0) {
-		OPENSSL_free(data->data);
-		OPENSSL_free(data->ref_cnt);
-	} else
-		*(data->ref_cnt) -= 1;
-
-	memset(data, 0, sizeof(struct pkcs11_digest_ctx));
 	ret = 1;
-	
+
 out_endsession:
-	pFunctionList->C_CloseSession(wrapper->session);
-	OPENSSL_free(wrapper);
-out:
+	pFunctionList->C_CloseSession(MD_DATA(ctx)->session);
+	MD_DATA(ctx)->session = CK_INVALID_HANDLE;
 	return ret;
 }
 
 static int
 pkcs11_digest_copy(EVP_MD_CTX *out, const EVP_MD_CTX *in)
 {
-	struct pkcs11_digest_ctx *data = out->md_data;
+	if (EVP_MD_CTX_test_flags(in, EVP_MD_CTX_FLAG_NO_INIT))
+		return 1;
 
-	DBG_fprintf("%s, ref_cnt addr: %p, val: %d\n", __FUNCTION__, data->ref_cnt,
-		    *(data->ref_cnt));
+	DBG_fprintf("%s\n", __FUNCTION__);
 
-	*(data->ref_cnt) += 1;
-
-	DBG_fprintf("%s, ref_cnt addr: %p, val: %d\n", __FUNCTION__, data->ref_cnt,
-		    *(data->ref_cnt));
+	if(MD_DATA(in)->state == NULL){
+		pFunctionList->C_GetOperationState(MD_DATA(in)->session,
+						   NULL_PTR,
+						   &MD_DATA(in)->ulStateLen);
+		MD_DATA(in)->state = (CK_BYTE_PTR) malloc(
+				MD_DATA(in)->ulStateLen);
+		pFunctionList->C_GetOperationState(MD_DATA(in)->session,
+						   MD_DATA(in)->state,
+						   &MD_DATA(in)->ulStateLen);
+	}
+	MD_DATA(out)->ref_cnt += 1;
 
 	return 1;
 }

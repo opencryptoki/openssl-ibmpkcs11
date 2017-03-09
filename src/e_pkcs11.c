@@ -109,7 +109,7 @@ static int pkcs11_rand_status(void);
 static inline int pkcs11_init_key(EVP_CIPHER_CTX * ctx, const unsigned char *key,
 		const unsigned char *iv, int enc, int alg);
 static inline int pkcs11_cipher(EVP_CIPHER_CTX * ctx, unsigned char *out,
-		const unsigned char *in, unsigned int inlen);
+		const unsigned char *in, size_t inlen);
 static int pkcs11_cipher_cleanup(EVP_CIPHER_CTX *ctx);
 
 static int pkcs11_des_init_key(EVP_CIPHER_CTX * ctx, const unsigned char *key,
@@ -1514,7 +1514,6 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 	CK_RV rv;
 	CK_OBJECT_HANDLE hKey = CK_INVALID_HANDLE;
 	CK_ULONG Matches;
-	int ret=0;
 	CK_KEY_TYPE kType = CKK_RSA;
 	CK_ULONG ulKeyAttributeCount;
 	CK_ATTRIBUTE  pubKeyTemplate[] =
@@ -1545,11 +1544,11 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 		DBG_fprintf("looking up a public key\n");
 		pubKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
 		pubKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)pubKeyTemplate[2].ulValueLen);
-		ret = BN_bn2bin(rsa->n, pubKeyTemplate[2].pValue);
+		BN_bn2bin(rsa->n, pubKeyTemplate[2].pValue);
 
 		pubKeyTemplate[3].ulValueLen = BN_num_bytes(rsa->e);
 		pubKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)pubKeyTemplate[3].ulValueLen);
-		ret = BN_bn2bin(rsa->e, pubKeyTemplate[3].pValue);
+		BN_bn2bin(rsa->e, pubKeyTemplate[3].pValue);
 
 		ulKeyAttributeCount = 4;
 		rv = pFunctionList->C_FindObjectsInit(h, pubKeyTemplate, ulKeyAttributeCount);
@@ -1557,35 +1556,35 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 		DBG_fprintf("looking up a private key\n");
 		privKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
 		privKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[2].ulValueLen);
-		ret = BN_bn2bin(rsa->n, privKeyTemplate[2].pValue);
+		BN_bn2bin(rsa->n, privKeyTemplate[2].pValue);
 
 		privKeyTemplate[3].ulValueLen = BN_num_bytes(rsa->e);
 		privKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[3].ulValueLen);
-		ret = BN_bn2bin(rsa->e, privKeyTemplate[3].pValue);
+		BN_bn2bin(rsa->e, privKeyTemplate[3].pValue);
 
 		privKeyTemplate[4].ulValueLen = BN_num_bytes(rsa->d);
 		privKeyTemplate[4].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[4].ulValueLen);
-		ret = BN_bn2bin(rsa->d, privKeyTemplate[4].pValue);
+		BN_bn2bin(rsa->d, privKeyTemplate[4].pValue);
 
 		privKeyTemplate[5].ulValueLen = BN_num_bytes(rsa->p);
 		privKeyTemplate[5].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[5].ulValueLen);
-		ret = BN_bn2bin(rsa->p, privKeyTemplate[5].pValue);
+		BN_bn2bin(rsa->p, privKeyTemplate[5].pValue);
 
 		privKeyTemplate[6].ulValueLen = BN_num_bytes(rsa->q);
 		privKeyTemplate[6].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[6].ulValueLen);
-		ret = BN_bn2bin(rsa->q, privKeyTemplate[6].pValue);
+		BN_bn2bin(rsa->q, privKeyTemplate[6].pValue);
 
 		privKeyTemplate[7].ulValueLen = BN_num_bytes(rsa->dmp1);
 		privKeyTemplate[7].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[7].ulValueLen);
-		ret = BN_bn2bin(rsa->dmp1, privKeyTemplate[7].pValue);
+		BN_bn2bin(rsa->dmp1, privKeyTemplate[7].pValue);
 
 		privKeyTemplate[8].ulValueLen = BN_num_bytes(rsa->dmq1);
 		privKeyTemplate[8].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[8].ulValueLen);
-		ret = BN_bn2bin(rsa->dmq1, privKeyTemplate[8].pValue);
+		BN_bn2bin(rsa->dmq1, privKeyTemplate[8].pValue);
 
 		privKeyTemplate[9].ulValueLen = BN_num_bytes(rsa->iqmp);
 		privKeyTemplate[9].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[9].ulValueLen);
-		ret = BN_bn2bin(rsa->iqmp, privKeyTemplate[9].pValue);
+		BN_bn2bin(rsa->iqmp, privKeyTemplate[9].pValue);
 
 		ulKeyAttributeCount = 10;
 		rv = pFunctionList->C_FindObjectsInit(h, privKeyTemplate, ulKeyAttributeCount);
@@ -2945,7 +2944,7 @@ pkcs11_cipher_cleanup(EVP_CIPHER_CTX *ctx)
 }
 
 static inline int pkcs11_cipher(EVP_CIPHER_CTX * ctx, unsigned char *out,
-		const unsigned char *in, unsigned int inlen)
+		const unsigned char *in, size_t inlen)
 {
 	unsigned long outlen = inlen;
 	CK_RV rv;

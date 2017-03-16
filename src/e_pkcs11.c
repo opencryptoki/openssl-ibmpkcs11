@@ -243,6 +243,7 @@ struct pkcs11_digest_ctx {
 static int num_cipher_nids = 0;
 static int num_digest_nids = 0;
 
+#ifdef OLDER_OPENSSL
 const EVP_CIPHER pkcs11_des_ecb = {
 	NID_des_ecb,		/* NID */
 	8,			/* Block size */
@@ -274,7 +275,45 @@ const EVP_CIPHER pkcs11_des_cbc = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+#else
+#define DECLARE_DES_EVP(lmode, umode)					      \
+static EVP_CIPHER *des_##lmode = NULL;					      \
+static const EVP_CIPHER *pkcs11_des_##lmode(void)			      \
+{									      \
+	if (des_##lmode == NULL) {					      \
+		EVP_CIPHER *cipher;					      \
+		if (( cipher = EVP_CIPHER_meth_new(NID_des_##lmode,	      \
+						   8, 8)) == NULL	      \
+		|| !EVP_CIPHER_meth_set_iv_length(cipher, 8)		      \
+		|| !EVP_CIPHER_meth_set_flags(cipher, EVP_CIPH_##umode##_MODE)\
+		|| !EVP_CIPHER_meth_set_init(cipher, pkcs11_des_init_key)     \
+		|| !EVP_CIPHER_meth_set_do_cipher(cipher, pkcs11_cipher)      \
+		|| !EVP_CIPHER_meth_set_cleanup(cipher, pkcs11_cipher_cleanup)\
+		|| !EVP_CIPHER_meth_set_impl_ctx_size(cipher, sizeof(	      \
+							struct token_session))\
+		|| !EVP_CIPHER_meth_set_set_asn1_params(cipher,		      \
+						EVP_CIPHER_set_asn1_iv)       \
+		|| !EVP_CIPHER_meth_set_get_asn1_params(cipher,		      \
+						EVP_CIPHER_get_asn1_iv)) {    \
+			EVP_CIPHER_meth_free(cipher);			      \
+			cipher = NULL;					      \
+		}							      \
+		des_##lmode = cipher;					      \
+	}								      \
+	return des_##lmode;						      \
+}									      \
+									      \
+static void pkcs11_des_##lmode##_destroy(void)				      \
+{									      \
+	EVP_CIPHER_meth_free(des_##lmode);				      \
+	des_##lmode = NULL;						      \
+}
 
+DECLARE_DES_EVP(ecb, ECB)
+DECLARE_DES_EVP(cbc, CBC)
+#endif
+
+#ifdef OLDER_OPENSSL
 const EVP_CIPHER pkcs11_tdes_ecb = {
 	NID_des_ede3_ecb,	/* NID */
 	8,			/* Block size */
@@ -306,6 +345,44 @@ const EVP_CIPHER pkcs11_tdes_cbc = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+#else
+#define DECLARE_TDES_EVP(lmode, umode)					      \
+static EVP_CIPHER *tdes_##lmode = NULL;					      \
+static const EVP_CIPHER *pkcs11_tdes_##lmode(void)			      \
+{									      \
+	if (tdes_##lmode == NULL) {					      \
+		EVP_CIPHER *cipher;					      \
+		if (( cipher = EVP_CIPHER_meth_new(NID_des_ede3_##lmode,      \
+						   8, 24)) == NULL	      \
+		|| !EVP_CIPHER_meth_set_iv_length(cipher, 8)		      \
+		|| !EVP_CIPHER_meth_set_flags(cipher, EVP_CIPH_##umode##_MODE)\
+		|| !EVP_CIPHER_meth_set_init(cipher, pkcs11_tdes_init_key)    \
+		|| !EVP_CIPHER_meth_set_do_cipher(cipher, pkcs11_cipher)      \
+		|| !EVP_CIPHER_meth_set_cleanup(cipher, pkcs11_cipher_cleanup)\
+		|| !EVP_CIPHER_meth_set_impl_ctx_size(cipher, sizeof(	      \
+							struct token_session))\
+		|| !EVP_CIPHER_meth_set_set_asn1_params(cipher,		      \
+						EVP_CIPHER_set_asn1_iv)       \
+		|| !EVP_CIPHER_meth_set_get_asn1_params(cipher,		      \
+						EVP_CIPHER_get_asn1_iv)) {    \
+			EVP_CIPHER_meth_free(cipher);			      \
+			cipher = NULL;					      \
+		}							      \
+		tdes_##lmode = cipher;					      \
+	}								      \
+	return tdes_##lmode;						      \
+}									      \
+									      \
+static void pkcs11_tdes_##lmode##_destroy(void)				      \
+{									      \
+	EVP_CIPHER_meth_free(tdes_##lmode);				      \
+	tdes_##lmode = NULL;						      \
+}
+
+DECLARE_TDES_EVP(ecb, ECB)
+DECLARE_TDES_EVP(cbc, CBC)
+
+#endif
 
 /* AES ECB */
 const EVP_CIPHER pkcs11_aes_128_ecb = {
@@ -847,16 +924,32 @@ static int pkcs11_engine_ciphers(ENGINE * e, const EVP_CIPHER ** cipher,
 				*cipher = &pkcs11_aes_256_cbc;
 				break;
 			case NID_des_ecb:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_des_ecb;
+#else
+				*cipher = pkcs11_des_ecb();
+#endif
 				break;
 			case NID_des_cbc:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_des_cbc;
+#else
+				*cipher = pkcs11_des_cbc();
+#endif
 				break;
 			case NID_des_ede3_ecb:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_tdes_ecb;
+#else
+				*cipher = pkcs11_tdes_ecb();
+#endif
 				break;
 			case NID_des_ede3_cbc:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_tdes_cbc;
+#else
+				*cipher = pkcs11_tdes_cbc();
+#endif
 				break;
 			default:
 				*cipher = NULL;
@@ -1453,6 +1546,13 @@ err:
 static int pkcs11_destroy(ENGINE *e)
 {
 	DBG_fprintf("%s: called\n", __FUNCTION__);
+
+#ifndef OLDER_OPENSSL
+	pkcs11_des_ecb_destroy();
+	pkcs11_des_cbc_destroy();
+	pkcs11_tdes_ecb_destroy();
+	pkcs11_tdes_cbc_destroy();
+#endif
 
 	free_PKCS11_LIBNAME();
 	ERR_unload_pkcs11_strings();

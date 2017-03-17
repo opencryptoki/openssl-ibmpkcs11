@@ -138,7 +138,7 @@ static inline int pkcs11_sha256_init(EVP_MD_CTX *ctx);
 static inline int pkcs11_sha384_init(EVP_MD_CTX *ctx);
 static inline int pkcs11_sha512_init(EVP_MD_CTX *ctx);
 static inline int pkcs11_md5_init(EVP_MD_CTX *ctx);
-static inline int pkcs11_ripemd_init(EVP_MD_CTX *ctx);
+static inline int pkcs11_ripemd160_init(EVP_MD_CTX *ctx);
 /* End digest function prototypes */
 
 static int pre_init_pkcs11(ENGINE *e);
@@ -276,6 +276,7 @@ const EVP_CIPHER pkcs11_des_cbc = {
 	NULL			/* app data (ctx->cipher_data) */
 };
 #else
+
 #define DECLARE_DES_EVP(lmode, umode)					      \
 static EVP_CIPHER *des_##lmode = NULL;					      \
 static const EVP_CIPHER *pkcs11_des_##lmode(void)			      \
@@ -346,6 +347,7 @@ const EVP_CIPHER pkcs11_tdes_cbc = {
 	NULL			/* app data (ctx->cipher_data) */
 };
 #else
+
 #define DECLARE_TDES_EVP(lmode, umode)					      \
 static EVP_CIPHER *tdes_##lmode = NULL;					      \
 static const EVP_CIPHER *pkcs11_tdes_##lmode(void)			      \
@@ -482,6 +484,7 @@ const EVP_CIPHER pkcs11_aes_256_cbc = {
 	NULL			/* app data (ctx->cipher_data) */
 };
 #else
+
 #define EVP_CIPHER_keylen_AES_128 16
 #define EVP_CIPHER_keylen_AES_192 24
 #define EVP_CIPHER_keylen_AES_256 32
@@ -528,6 +531,7 @@ DECLARE_AES_EVP(192, ecb, ECB)
 DECLARE_AES_EVP(256, ecb, ECB)
 #endif
 
+#ifdef OLDER_OPENSSL
 /* Message Digests */
 const EVP_MD pkcs11_sha1 = {
        NID_sha1,
@@ -543,6 +547,7 @@ const EVP_MD pkcs11_sha1 = {
        SHA_CBLOCK,
        sizeof(struct pkcs11_digest_ctx)
 };
+
 const EVP_MD pkcs11_sha224 = {
        NID_sha224,
        NID_sha224WithRSAEncryption,
@@ -557,6 +562,7 @@ const EVP_MD pkcs11_sha224 = {
        SHA256_CBLOCK,
        sizeof(struct pkcs11_digest_ctx)
 };
+
 const EVP_MD pkcs11_sha256 = {
        NID_sha256,
        NID_sha256WithRSAEncryption,
@@ -571,6 +577,7 @@ const EVP_MD pkcs11_sha256 = {
        SHA256_CBLOCK,
        sizeof(struct pkcs11_digest_ctx)
 };
+
 const EVP_MD pkcs11_sha384 = {
        NID_sha384,
        NID_sha384WithRSAEncryption,
@@ -585,6 +592,7 @@ const EVP_MD pkcs11_sha384 = {
        SHA512_CBLOCK,
        sizeof(struct pkcs11_digest_ctx)
 };
+
 const EVP_MD pkcs11_sha512 = {
        NID_sha512,
        NID_sha512WithRSAEncryption,
@@ -615,12 +623,12 @@ const EVP_MD pkcs11_md5 = {
        sizeof(struct pkcs11_digest_ctx)
 };
 
-const EVP_MD pkcs11_ripemd = {
+const EVP_MD pkcs11_ripemd160 = {
        NID_ripemd160,
        NID_ripemd160WithRSA,
        RIPEMD160_DIGEST_LENGTH,
        0, /* flags */
-       pkcs11_ripemd_init,
+       pkcs11_ripemd160_init,
        pkcs11_digest_update,
        pkcs11_digest_finish,  /* final */
        pkcs11_digest_copy,
@@ -629,10 +637,50 @@ const EVP_MD pkcs11_ripemd = {
        RIPEMD160_CBLOCK,
        sizeof(struct pkcs11_digest_ctx)
 };
+#else
+
+#define DECLARE_DIGEST_EVP(dig, len, enc)				      \
+static EVP_MD *dig##_md = NULL;						      \
+static const EVP_MD *pkcs11_##dig(void)					      \
+{									      \
+	if (dig##_md == NULL) {						      \
+		EVP_MD *md;						      \
+		if (( md = EVP_MD_meth_new(NID_##dig,			      \
+					NID_##dig##WithRSA##enc)) == NULL     \
+		   || !EVP_MD_meth_set_result_size(md, len##_DIGEST_LENGTH)   \
+		   || !EVP_MD_meth_set_input_blocksize(md, len##_CBLOCK)      \
+		   || !EVP_MD_meth_set_app_datasize(md, 		      \
+					sizeof(struct pkcs11_digest_ctx))     \
+		   || !EVP_MD_meth_set_flags(md, 0)			      \
+		   || !EVP_MD_meth_set_init(md, pkcs11_##dig##_init)	      \
+		   || !EVP_MD_meth_set_update(md, pkcs11_digest_update)	      \
+		   || !EVP_MD_meth_set_final(md, pkcs11_digest_finish)	      \
+		   || !EVP_MD_meth_set_copy(md, pkcs11_digest_copy)	      \
+		   || !EVP_MD_meth_set_cleanup(md, pkcs11_digest_cleanup)) {  \
+			EVP_MD_meth_free(md);				      \
+			md = NULL;					      \
+		}							      \
+		dig##_md = md;						      \
+	}								      \
+	return dig##_md;						      \
+}									      \
+									      \
+static void pkcs11_##dig##_destroy(void)				      \
+{									      \
+	EVP_MD_meth_free(dig##_md);					      \
+	dig##_md = NULL;						      \
+}
+
+DECLARE_DIGEST_EVP(sha1, SHA, Encryption)
+DECLARE_DIGEST_EVP(sha224, SHA256, Encryption)
+DECLARE_DIGEST_EVP(sha256, SHA256, Encryption)
+DECLARE_DIGEST_EVP(sha384, SHA512, Encryption)
+DECLARE_DIGEST_EVP(sha512, SHA512, Encryption)
+DECLARE_DIGEST_EVP(md5, MD5, Encryption)
+DECLARE_DIGEST_EVP(ripemd160, RIPEMD160,)
+#endif
 
 /********/
-
-
 #ifndef OPENSSL_NO_RSA
 #ifdef OLDER_OPENSSL
 static RSA_METHOD pkcs11_rsa =
@@ -1047,25 +1095,53 @@ static int pkcs11_engine_digests(ENGINE * e, const EVP_MD ** digest,
 	if (pkcs11_token->pkcs11_implemented_digests[nid]) {
 		switch (nid) {
 			case NID_ripemd160:
-				*digest = &pkcs11_ripemd;
+#ifdef OLDER_OPENSSL
+				*digest = &pkcs11_ripemd160;
+#else
+				*digest = pkcs11_ripemd160();
+#endif
 				break;
 			case NID_md5:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_md5;
+#else
+				*digest = pkcs11_md5();
+#endif
 				break;
 			case NID_sha1:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_sha1;
+#else
+				*digest = pkcs11_sha1();
+#endif
 				break;
 			case NID_sha224:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_sha224;
+#else
+				*digest = pkcs11_sha224();
+#endif
 				break;
 			case NID_sha256:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_sha256;
+#else
+				*digest = pkcs11_sha256();
+#endif
 				break;
 			case NID_sha384:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_sha384;
+#else
+				*digest = pkcs11_sha384();
+#endif
 				break;
 			case NID_sha512:
+#ifdef OLDER_OPENSSL
 				*digest = &pkcs11_sha512;
+#else
+				*digest = pkcs11_sha512();
+#endif
 				break;
 			default:
 				*digest = NULL;
@@ -1632,6 +1708,13 @@ static int pkcs11_destroy(ENGINE *e)
 	pkcs11_aes_128_ecb_destroy();
 	pkcs11_aes_192_ecb_destroy();
 	pkcs11_aes_256_ecb_destroy();
+	pkcs11_sha1_destroy();
+	pkcs11_sha224_destroy();
+	pkcs11_sha256_destroy();
+	pkcs11_sha384_destroy();
+	pkcs11_sha512_destroy();
+	pkcs11_md5_destroy();
+	pkcs11_ripemd160_destroy();
 #endif
 
 	free_PKCS11_LIBNAME();
@@ -3287,7 +3370,7 @@ pkcs11_md5_init(EVP_MD_CTX *ctx)
 }
 
 static inline int
-pkcs11_ripemd_init(EVP_MD_CTX *ctx)
+pkcs11_ripemd160_init(EVP_MD_CTX *ctx)
 {
 	return pkcs11_digest_init(ctx, alg_ripemd);
 }

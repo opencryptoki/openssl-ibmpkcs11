@@ -381,9 +381,9 @@ static void pkcs11_tdes_##lmode##_destroy(void)				      \
 
 DECLARE_TDES_EVP(ecb, ECB)
 DECLARE_TDES_EVP(cbc, CBC)
-
 #endif
 
+#ifdef OLDER_OPENSSL
 /* AES ECB */
 const EVP_CIPHER pkcs11_aes_128_ecb = {
 	NID_aes_128_cbc,	/* NID */
@@ -400,6 +400,7 @@ const EVP_CIPHER pkcs11_aes_128_ecb = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+
 const EVP_CIPHER pkcs11_aes_192_ecb = {
 	NID_aes_192_ecb,	/* NID */
 	16,			/* Block size */
@@ -415,6 +416,7 @@ const EVP_CIPHER pkcs11_aes_192_ecb = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+
 const EVP_CIPHER pkcs11_aes_256_ecb = {
 	NID_aes_256_ecb,	/* NID */
 	16,			/* Block size */
@@ -447,6 +449,7 @@ const EVP_CIPHER pkcs11_aes_128_cbc = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+
 const EVP_CIPHER pkcs11_aes_192_cbc = {
 	NID_aes_192_cbc,	/* NID */
 	16,			/* Block size */
@@ -462,6 +465,7 @@ const EVP_CIPHER pkcs11_aes_192_cbc = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+
 const EVP_CIPHER pkcs11_aes_256_cbc = {
 	NID_aes_256_cbc,	/* NID */
 	16,			/* Block size */
@@ -477,6 +481,52 @@ const EVP_CIPHER pkcs11_aes_256_cbc = {
 	NULL,			/* misc ctrl ops */
 	NULL			/* app data (ctx->cipher_data) */
 };
+#else
+#define EVP_CIPHER_keylen_AES_128 16
+#define EVP_CIPHER_keylen_AES_192 24
+#define EVP_CIPHER_keylen_AES_256 32
+
+#define DECLARE_AES_EVP(ksize, lmode, umode)				      \
+static EVP_CIPHER *aes_##ksize##_##lmode = NULL;			      \
+static const EVP_CIPHER *pkcs11_aes_##ksize##_##lmode(void)		      \
+{									      \
+	if (aes_##ksize##_##lmode == NULL) {				      \
+		EVP_CIPHER *cipher;					      \
+		if (( cipher = EVP_CIPHER_meth_new(NID_aes_##ksize##_##lmode, \
+				    8,					      \
+				    EVP_CIPHER_keylen_AES_##ksize)) == NULL   \
+		|| !EVP_CIPHER_meth_set_iv_length(cipher, 16)		      \
+		|| !EVP_CIPHER_meth_set_flags(cipher, EVP_CIPH_##umode##_MODE)\
+		|| !EVP_CIPHER_meth_set_init(cipher, pkcs11_aes_init_key)     \
+		|| !EVP_CIPHER_meth_set_do_cipher(cipher, pkcs11_cipher)      \
+		|| !EVP_CIPHER_meth_set_cleanup(cipher, pkcs11_cipher_cleanup)\
+		|| !EVP_CIPHER_meth_set_impl_ctx_size(cipher, sizeof(	      \
+							struct token_session))\
+		|| !EVP_CIPHER_meth_set_set_asn1_params(cipher,		      \
+						EVP_CIPHER_set_asn1_iv)       \
+		|| !EVP_CIPHER_meth_set_get_asn1_params(cipher,		      \
+						EVP_CIPHER_get_asn1_iv)) {    \
+			EVP_CIPHER_meth_free(cipher);			      \
+			cipher = NULL;					      \
+		}							      \
+		aes_##ksize##_##lmode = cipher;				      \
+	}								      \
+	return aes_##ksize##_##lmode;					      \
+}									      \
+									      \
+static void pkcs11_aes_##ksize##_##lmode##_destroy(void)		      \
+{									      \
+	EVP_CIPHER_meth_free(aes_##ksize##_##lmode);			      \
+	aes_##ksize##_##lmode = NULL;					      \
+}
+
+DECLARE_AES_EVP(128, cbc, CBC)
+DECLARE_AES_EVP(192, cbc, CBC)
+DECLARE_AES_EVP(256, cbc, CBC)
+DECLARE_AES_EVP(128, ecb, ECB)
+DECLARE_AES_EVP(192, ecb, ECB)
+DECLARE_AES_EVP(256, ecb, ECB)
+#endif
 
 /* Message Digests */
 const EVP_MD pkcs11_sha1 = {
@@ -906,22 +956,46 @@ static int pkcs11_engine_ciphers(ENGINE * e, const EVP_CIPHER ** cipher,
 	if (pkcs11_token->pkcs11_implemented_ciphers[nid]) {
 		switch (nid) {
 			case NID_aes_128_ecb:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_128_ecb;
+#else
+				*cipher = pkcs11_aes_128_ecb();
+#endif
 				break;
 			case NID_aes_192_ecb:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_192_ecb;
+#else
+				*cipher = pkcs11_aes_192_ecb();
+#endif
 				break;
 			case NID_aes_256_ecb:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_256_ecb;
+#else
+				*cipher = pkcs11_aes_256_ecb();
+#endif
 				break;
 			case NID_aes_128_cbc:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_128_cbc;
+#else
+				*cipher = pkcs11_aes_128_cbc();
+#endif
 				break;
 			case NID_aes_192_cbc:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_192_cbc;
+#else
+				*cipher = pkcs11_aes_192_cbc();
+#endif
 				break;
 			case NID_aes_256_cbc:
+#ifdef OLDER_OPENSSL
 				*cipher = &pkcs11_aes_256_cbc;
+#else
+				*cipher = pkcs11_aes_256_cbc();
+#endif
 				break;
 			case NID_des_ecb:
 #ifdef OLDER_OPENSSL
@@ -1552,6 +1626,12 @@ static int pkcs11_destroy(ENGINE *e)
 	pkcs11_des_cbc_destroy();
 	pkcs11_tdes_ecb_destroy();
 	pkcs11_tdes_cbc_destroy();
+	pkcs11_aes_128_cbc_destroy();
+	pkcs11_aes_192_cbc_destroy();
+	pkcs11_aes_256_cbc_destroy();
+	pkcs11_aes_128_ecb_destroy();
+	pkcs11_aes_192_ecb_destroy();
+	pkcs11_aes_256_ecb_destroy();
 #endif
 
 	free_PKCS11_LIBNAME();

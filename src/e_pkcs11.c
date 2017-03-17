@@ -238,7 +238,11 @@ struct pkcs11_digest_ctx {
 /********/
 
 #define CIPHER_DATA(ctx) ((struct token_session *)(ctx->cipher_data))
+#ifdef OLDER_OPENSSL
 #define MD_DATA(ctx) ((struct pkcs11_digest_ctx *)(ctx->md_data))
+#else
+#define MD_DATA(ctx) ((struct pkcs11_digest_ctx *)(EVP_MD_CTX_md_data(ctx)))
+#endif
 
 static int num_cipher_nids = 0;
 static int num_digest_nids = 0;

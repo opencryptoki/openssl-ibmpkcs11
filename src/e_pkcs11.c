@@ -20,15 +20,16 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <dlfcn.h>
 
-#include <openssl/e_os2.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <openssl/e_os2.h>
 #include <openssl/engine.h>
-#include <openssl/dso.h>
 #include <openssl/err.h>
-#include <stdio.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
@@ -37,12 +38,9 @@
 #include <openssl/x509.h>
 #include <openssl/md5.h>
 #include <openssl/ripemd.h>
-#include <pthread.h>
 
 #ifndef OPENSSL_NO_HW
 #ifndef OPENSSL_NO_HW_PKCS11
-
-
 
 #include "cryptoki.h"
 #include "e_pkcs11_err.h"
@@ -569,7 +567,7 @@ extern CK_RV C_InitializeRpc (CK_CHAR_PTR, CK_CHAR_PTR, CK_ULONG_PTR);
 #elif defined(GPKCS11) 
 static const char def_PKCS11_LIBNAME[] = "gpkcs11";
 #elif defined(OPENCRYPTOKI)
-static char *def_PKCS11_LIBNAME = "opencryptoki";
+static char *def_PKCS11_LIBNAME = "libopencryptoki.so";
 #else
 static const char def_PKCS11_LIBNAME[] = "pkcs11";
 #endif
@@ -899,12 +897,7 @@ static int pkcs11_engine_digests(ENGINE * e, const EVP_MD ** digest,
 	return (*digest != NULL);
 }
 
-/* This is a process-global DSO handle used for loading and unloading
- * the PKCS#11 library. NB: This is only set (or unset) during an
- * init() or finish() call (reference counts permitting) and they're
- * operating with global locks, so this should be thread-safe
- * implicitly. */
-static DSO *pkcs11_dso = NULL;
+void *pkcs11_dso = NULL;
 
 /* These are the static string constants for the DSO file name and the function
  * symbol names to bind to. 
@@ -1165,7 +1158,7 @@ static int pre_init_pkcs11(ENGINE *e)
 	}
 
 	/* Attempt to load PKCS#11 library */
-	pkcs11_dso = DSO_load(NULL, get_PKCS11_LIBNAME(), NULL, 0);
+	pkcs11_dso = dlopen(get_PKCS11_LIBNAME(), RTLD_NOW);
 
 	if(pkcs11_dso == NULL)
 	{
@@ -1174,7 +1167,7 @@ static int pre_init_pkcs11(ENGINE *e)
 	}
 
 	/* get the C_GetFunctionList function from the loaded library */
-	p = (CK_C_GetFunctionList)DSO_bind_func(pkcs11_dso, PKCS11_GET_FUNCTION_LIST);
+	p = (CK_C_GetFunctionList)dlsym(pkcs11_dso, PKCS11_GET_FUNCTION_LIST);
 	if ( !p )
 	{
 		PKCS11err(PKCS11_F_PREINIT, PKCS11_R_DSO_FAILURE);
@@ -1266,14 +1259,14 @@ static int pre_init_pkcs11(ENGINE *e)
 	/* Finish with Cryptoki:  We will restart if openSSL calls one of our
 	 * functions */
 	pFunctionList->C_Finalize(NULL);
-	DSO_free(pkcs11_dso);
+	dlclose(pkcs11_dso);
 	pkcs11_dso = NULL;
 
 	return 1;
 
 err:
 	if(pkcs11_dso)
-		DSO_free(pkcs11_dso);
+		dlclose(pkcs11_dso);
 	pkcs11_dso = NULL;
 	return 0;
 }
@@ -1298,7 +1291,7 @@ static int pkcs11_init(ENGINE *e)
 	}
 
 	/* Attempt to load PKCS#11 library */
-	pkcs11_dso = DSO_load(NULL, get_PKCS11_LIBNAME(), NULL, 0);
+	pkcs11_dso = dlopen(get_PKCS11_LIBNAME(), RTLD_NOW);
 
 	if(pkcs11_dso == NULL)
 	{
@@ -1307,7 +1300,7 @@ static int pkcs11_init(ENGINE *e)
 	}
 
 	/* get the C_GetFunctionList function from the loaded library */
-	p = (CK_C_GetFunctionList)DSO_bind_func(pkcs11_dso, PKCS11_GET_FUNCTION_LIST);
+	p = (CK_C_GetFunctionList)dlsym(pkcs11_dso, PKCS11_GET_FUNCTION_LIST);
 	if ( !p )
 	{
 		PKCS11err(PKCS11_F_INIT, PKCS11_R_DSO_FAILURE);
@@ -1416,7 +1409,7 @@ static int pkcs11_init(ENGINE *e)
 
 err:
 	if(pkcs11_dso)
-		DSO_free(pkcs11_dso);
+		dlclose(pkcs11_dso);
 	pkcs11_dso = NULL;
 	return 0;
 }
@@ -1452,7 +1445,7 @@ static int pkcs11_finish(ENGINE *e)
 
 	pFunctionList->C_Finalize(NULL);
 
-	if(!DSO_free(pkcs11_dso))
+	if(dlclose(pkcs11_dso))
 	{	PKCS11err(PKCS11_F_FINISH, PKCS11_R_DSO_FAILURE);
 		goto err;
 	}

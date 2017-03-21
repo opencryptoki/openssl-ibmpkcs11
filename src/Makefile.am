@@ -2,7 +2,7 @@ lib_LTLIBRARIES=libibmpkcs11.la
 
 libibmpkcs11_la_CFLAGS=-I./include
 
-libibmpkcs11_la_LDFLAGS=@LIBS@ -lc -lpthread
+libibmpkcs11_la_LDFLAGS=@LIBS@ -lc -lpthread -ldl
 libibmpkcs11_la_SOURCES=e_pkcs11.c \
 			e_pkcs11_err.c \
 			e_pkcs11.h \

@@ -104,8 +104,13 @@ RSA* pkcs11_RSA_generate_tmp_key(int bits,unsigned long e_value,void (*callback)
 #endif
 
 /* RAND stuff */
+#ifdef OLDER_OPENSSL
 static void pkcs11_rand_seed(const void *buf, int num);
 static void pkcs11_rand_add(const void *buf, int num, double add_entropy);
+#else
+static int pkcs11_rand_seed(const void *buf, int num);
+static int pkcs11_rand_add(const void *buf, int num, double add_entropy);
+#endif
 static void pkcs11_rand_cleanup(void);
 static int pkcs11_rand_bytes(unsigned char *buf, int num);
 static int pkcs11_rand_status(void);
@@ -3059,43 +3064,68 @@ static void pkcs11_rand_cleanup(void)
 	return;
 }
 
-static void pkcs11_rand_add(const void *buf,
-		int num,
-		double entropy)
+#ifdef OLDER_OPENSSL
+static void pkcs11_rand_add(const void *buf, int num, double entropy)
+#else
+static int pkcs11_rand_add(const void *buf, int num, double entropy)
+#endif
 {
 	CK_RV rv;
 	struct token_session *wrapper;
- 
+#ifndef OLDER_OPENSSL
+	int ret = 0;
+#endif
+
 	DBG_fprintf("%s\n", __FUNCTION__);
 
 	/* return any token */
 	wrapper = pkcs11_getSession();
 	if (!wrapper)
+#ifdef OLDER_OPENSSL
 		return;
+#else
+		return 0;
+#endif
 
 	rv = pFunctionList->C_SeedRandom(wrapper->session, (CK_BYTE_PTR)&entropy, sizeof(entropy));
 	if (rv != CKR_OK)
 	{
 		pkcs11_die(PKCS11_F_RAND_ADD, PKCS11_R_SEEDRANDOM, rv);
-		return; 
+		goto out;
 	}
 
 	rv = pFunctionList->C_GenerateRandom(wrapper->session, (CK_BYTE *)buf, num);
 	if (rv != CKR_OK)
 	{
 		pkcs11_die(PKCS11_F_RAND_ADD, PKCS11_R_GENERATERANDOM, rv);
+		goto out;
 	}
 
-	pFunctionList->C_CloseSession(wrapper->session);
+#ifndef OLDER_OPENSSL
+	ret = 1;
+#endif
+
+out:	pFunctionList->C_CloseSession(wrapper->session);
 	OPENSSL_free(wrapper);
+
+#ifndef OLDER_OPENSSL
+	return ret;
+#endif
 }
 
-static void pkcs11_rand_seed(const void *buf,
-		int num)
+#ifdef OLDER_OPENSSL
+static void pkcs11_rand_seed(const void *buf, int num)
+#else
+static int pkcs11_rand_seed(const void *buf, int num)
+#endif
 {
 	DBG_fprintf("%s\n", __FUNCTION__);
 
+#ifdef OLDER_OPENSSL
 	pkcs11_rand_add(buf, num, num);
+#else
+	return pkcs11_rand_add(buf, num, num);
+#endif
 }
 
 static int pkcs11_rand_bytes(unsigned char *buf,

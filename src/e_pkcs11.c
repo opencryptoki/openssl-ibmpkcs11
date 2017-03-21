@@ -237,10 +237,11 @@ struct pkcs11_digest_ctx {
 
 /********/
 
-#define CIPHER_DATA(ctx) ((struct token_session *)(ctx->cipher_data))
 #ifdef OLDER_OPENSSL
+#define CIPHER_DATA(ctx) ((struct token_session *)(ctx->cipher_data))
 #define MD_DATA(ctx) ((struct pkcs11_digest_ctx *)(ctx->md_data))
 #else
+#define CIPHER_DATA(ctx) ((struct token_session *)(EVP_CIPHER_CTX_get_cipher_data(ctx)))
 #define MD_DATA(ctx) ((struct pkcs11_digest_ctx *)(EVP_MD_CTX_md_data(ctx)))
 #endif
 
@@ -3222,14 +3223,27 @@ static int pkcs11_init_key(EVP_CIPHER_CTX * ctx, const unsigned char *key,
 	CK_OBJECT_HANDLE hkey;
 
 	DBG_fprintf("%s\n", __FUNCTION__);
-	DBG_fprintf("EVP_CIPHER_CTX_mode(ctx): %lu, EVP_CIPH_CBC_MODE: %d, iv: %p, ctx->iv: %p\n",
-		    EVP_CIPHER_CTX_mode(ctx), EVP_CIPH_CBC_MODE, iv, ctx->iv);
+#ifdef OLDER_OPENSSL
+	DBG_fprintf("EVP_CIPHER_CTX_mode(ctx): %lu,		\
+		     EVP_CIPH_CBC_MODE: %d, iv: %p, ctx->iv: %p\n",
+		    EVP_CIPHER_CTX_mode(ctx), EVP_CIPH_CBC_MODE, iv,
+		    ctx->iv);
+#else
+	DBG_fprintf("EVP_CIPHER_CTX_mode(ctx): %lu,		\
+		     EVP_CIPH_CBC_MODE: %d, iv: %p, ctx->iv: %p\n",
+		    EVP_CIPHER_CTX_mode(ctx), EVP_CIPH_CBC_MODE, iv,
+		    EVP_CIPHER_CTX_iv(ctx));
+#endif
 
 	if (mech==-1) {
 		PKCS11err(PKCS11_F_INITKEY, PKCS11_R_BADMECHANISM);
 		goto out;
 	} else if (EVP_CIPHER_CTX_mode(ctx) == EVP_CIPH_CBC_MODE) {
+#ifdef OLDER_OPENSSL
 		mechanism.pParameter = (CK_VOID_PTR)(iv ? iv : ctx->iv);
+#else
+		mechanism.pParameter = (CK_VOID_PTR)(iv ? iv : EVP_CIPHER_CTX_iv(ctx));
+#endif
 		mechanism.ulParameterLen = EVP_CIPHER_CTX_iv_length(ctx);
 
 		if (mechanism.pParameter == NULL || mechanism.ulParameterLen == 0) {
@@ -3322,7 +3336,11 @@ static inline int pkcs11_cipher(EVP_CIPHER_CTX * ctx, unsigned char *out,
 
 	session = CIPHER_DATA(ctx)->session;
 
+#ifdef OLDER_OPENSSL
 	if (ctx->encrypt) {
+#else
+	if (EVP_CIPHER_CTX_encrypting(ctx)) {
+#endif
 		rv = pFunctionList->C_EncryptUpdate(session, (void *)in, inlen, (void *)out, &outlen);
 
 		if (rv) {

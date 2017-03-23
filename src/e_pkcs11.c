@@ -48,6 +48,10 @@
 /* SHA224, CAMELLIA */
 #include "pkcs-11v2-20a3.h"
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define OLDER_OPENSSL
+#endif
+
 /* Constants used when creating the ENGINE */
 static const char *engine_pkcs11_id = "ibmpkcs11";
 static const char *engine_pkcs11_name = "PKCS#11 hardware engine support";
@@ -72,6 +76,8 @@ static int pkcs11_RSA_private_decrypt(int flen, const unsigned char *from, unsig
 		RSA *rsa, int padding);
 static int pkcs11_RSA_init(RSA *rsa);
 static int pkcs11_RSA_finish(RSA *rsa);
+
+#ifdef OLDER_OPENSSL
 static int pkcs11_RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 		unsigned char *sigret, unsigned int *siglen, const RSA *rsa);
 
@@ -82,6 +88,7 @@ static int pkcs11_RSA_verify(int dtype, const unsigned char *m, unsigned int m_l
 #else
 static int pkcs11_RSA_verify(int dtype, const unsigned char *m, unsigned int m_len,
 		const unsigned char *sigbuf, unsigned int siglen, const RSA *rsa);
+#endif
 #endif
 
 static int pkcs11_RSA_generate_key(RSA *rsa, int bits, BIGNUM *bn_e, BN_GENCB *cb);
@@ -500,6 +507,7 @@ const EVP_MD pkcs11_ripemd = {
 
 
 #ifndef OPENSSL_NO_RSA
+#ifdef OLDER_OPENSSL
 static RSA_METHOD pkcs11_rsa =
 {
 	"PKCS#11 RSA",
@@ -517,11 +525,14 @@ static RSA_METHOD pkcs11_rsa =
 	pkcs11_RSA_verify,                             /* rsa_verify */
 	pkcs11_RSA_generate_key                       /* rsa_generate_key */ 
 };
+#else
+static RSA_METHOD *pkcs11_rsa = NULL;
+#endif
 
-RSA_METHOD *PKCS11_RSA(void)
+/*RSA_METHOD *PKCS11_RSA(void)
 {
 	return(&pkcs11_rsa);
-}
+}*/
 #endif
 
 extern const char *RAND_version;
@@ -966,7 +977,30 @@ void pkcs11_regToken(ENGINE *e, struct _token *tok)
 			case CKM_MD5_RSA_PKCS:
 #ifndef OPENSSL_NO_RSA
 				DBG_fprintf("%s: registering RSA\n", __FUNCTION__);
+#ifdef OLDER_OPENSSL
 				ENGINE_set_RSA(e, &pkcs11_rsa);
+#else
+				ENGINE_set_RSA(e, pkcs11_rsa);
+				pkcs11_rsa = RSA_meth_new("PKCS#11 RSA", 0);
+				RSA_meth_set_pub_enc(pkcs11_rsa,
+						pkcs11_RSA_public_encrypt);
+				RSA_meth_set_pub_dec(pkcs11_rsa,
+						pkcs11_RSA_public_decrypt);
+				RSA_meth_set_priv_enc(pkcs11_rsa,
+						pkcs11_RSA_private_encrypt);
+				RSA_meth_set_priv_dec(pkcs11_rsa,
+						pkcs11_RSA_private_decrypt);
+				RSA_meth_set_init(pkcs11_rsa,
+						pkcs11_RSA_init);
+				RSA_meth_set_finish(pkcs11_rsa,
+						pkcs11_RSA_finish);
+//				RSA_meth_set_sign(pkcs11_rsa,
+//						pkcs11_RSA_sign);
+//				RSA_meth_set_verify(pkcs11_rsa,
+//						pkcs11_RSA_verify);
+				RSA_meth_set_keygen(pkcs11_rsa,
+						pkcs11_RSA_generate_key);
+#endif
 				ENGINE_set_load_privkey_function(e, pkcs11_load_privkey);
 				ENGINE_set_load_pubkey_function(e, pkcs11_load_pubkey);
 #endif
@@ -1509,6 +1543,11 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 	CK_ULONG Matches;
 	CK_KEY_TYPE kType = CKK_RSA;
 	CK_ULONG ulKeyAttributeCount;
+
+#ifndef OLDER_OPENSSL
+	const BIGNUM *n, *e, *d, *p, *q, *dmp1, *dmq1, *iqmp;
+#endif
+
 	CK_ATTRIBUTE  pubKeyTemplate[] =
 	{
 		{CKA_CLASS, &oKey, sizeof(CK_OBJECT_CLASS)},
@@ -1535,49 +1574,87 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 
 	if (oKey == CKO_PUBLIC_KEY) {
 		DBG_fprintf("looking up a public key\n");
-		pubKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
-		pubKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)pubKeyTemplate[2].ulValueLen);
-		BN_bn2bin(rsa->n, pubKeyTemplate[2].pValue);
 
+#ifdef OLDER_OPENSSL
+		pubKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
 		pubKeyTemplate[3].ulValueLen = BN_num_bytes(rsa->e);
-		pubKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)pubKeyTemplate[3].ulValueLen);
+#else
+		RSA_get0_key(rsa, &n, &e, NULL);
+		pubKeyTemplate[2].ulValueLen = BN_num_bytes(n);
+		pubKeyTemplate[3].ulValueLen = BN_num_bytes(e);
+#endif
+
+		pubKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)pubKeyTemplate[2].ulValueLen);
+		pubKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)pubKeyTemplate[3].ulValueLen);
+
+#ifdef OLDER_OPENSSL
+		BN_bn2bin(rsa->n, pubKeyTemplate[2].pValue);
 		BN_bn2bin(rsa->e, pubKeyTemplate[3].pValue);
+#else
+		BN_bn2bin(n, pubKeyTemplate[2].pValue);
+		BN_bn2bin(e, pubKeyTemplate[3].pValue);
+#endif
 
 		ulKeyAttributeCount = 4;
 		rv = pFunctionList->C_FindObjectsInit(h, pubKeyTemplate, ulKeyAttributeCount);
 	} else {
 		DBG_fprintf("looking up a private key\n");
+
+#ifdef OLDER_OPENSSL
 		privKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
-		privKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[2].ulValueLen);
-		BN_bn2bin(rsa->n, privKeyTemplate[2].pValue);
-
-		privKeyTemplate[3].ulValueLen = BN_num_bytes(rsa->e);
-		privKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[3].ulValueLen);
-		BN_bn2bin(rsa->e, privKeyTemplate[3].pValue);
-
 		privKeyTemplate[4].ulValueLen = BN_num_bytes(rsa->d);
-		privKeyTemplate[4].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[4].ulValueLen);
-		BN_bn2bin(rsa->d, privKeyTemplate[4].pValue);
-
 		privKeyTemplate[5].ulValueLen = BN_num_bytes(rsa->p);
-		privKeyTemplate[5].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[5].ulValueLen);
-		BN_bn2bin(rsa->p, privKeyTemplate[5].pValue);
-
 		privKeyTemplate[6].ulValueLen = BN_num_bytes(rsa->q);
-		privKeyTemplate[6].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[6].ulValueLen);
-		BN_bn2bin(rsa->q, privKeyTemplate[6].pValue);
-
 		privKeyTemplate[7].ulValueLen = BN_num_bytes(rsa->dmp1);
-		privKeyTemplate[7].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[7].ulValueLen);
-		BN_bn2bin(rsa->dmp1, privKeyTemplate[7].pValue);
-
 		privKeyTemplate[8].ulValueLen = BN_num_bytes(rsa->dmq1);
-		privKeyTemplate[8].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[8].ulValueLen);
-		BN_bn2bin(rsa->dmq1, privKeyTemplate[8].pValue);
-
 		privKeyTemplate[9].ulValueLen = BN_num_bytes(rsa->iqmp);
-		privKeyTemplate[9].pValue = (CK_VOID_PTR)OPENSSL_malloc((size_t)privKeyTemplate[9].ulValueLen);
+#else
+		RSA_get0_key(rsa, &n, NULL, &d);
+		RSA_get0_factors(rsa, &p, &q);
+		RSA_get0_crt_params(rsa, &dmp1, &dmq1, &iqmp);
+		privKeyTemplate[2].ulValueLen = BN_num_bytes(n);
+		privKeyTemplate[4].ulValueLen = BN_num_bytes(d);
+		privKeyTemplate[5].ulValueLen = BN_num_bytes(p);
+		privKeyTemplate[6].ulValueLen = BN_num_bytes(q);
+		privKeyTemplate[7].ulValueLen = BN_num_bytes(dmp1);
+		privKeyTemplate[8].ulValueLen = BN_num_bytes(dmq1);
+		privKeyTemplate[9].ulValueLen = BN_num_bytes(iqmp);
+#endif
+
+		privKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[2].ulValueLen);
+		privKeyTemplate[4].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[4].ulValueLen);
+		privKeyTemplate[5].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[5].ulValueLen);
+		privKeyTemplate[6].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[6].ulValueLen);
+		privKeyTemplate[7].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[7].ulValueLen);
+		privKeyTemplate[8].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[8].ulValueLen);
+		privKeyTemplate[9].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[9].ulValueLen);
+
+#ifdef OLDER_OPENSSL
+		BN_bn2bin(rsa->n, privKeyTemplate[2].pValue);
+		BN_bn2bin(rsa->d, privKeyTemplate[4].pValue);
+		BN_bn2bin(rsa->p, privKeyTemplate[5].pValue);
+		BN_bn2bin(rsa->q, privKeyTemplate[6].pValue);
+		BN_bn2bin(rsa->dmp1, privKeyTemplate[7].pValue);
+		BN_bn2bin(rsa->dmq1, privKeyTemplate[8].pValue);
 		BN_bn2bin(rsa->iqmp, privKeyTemplate[9].pValue);
+#else
+		BN_bn2bin(n, privKeyTemplate[2].pValue);
+		BN_bn2bin(d, privKeyTemplate[4].pValue);
+		BN_bn2bin(p, privKeyTemplate[5].pValue);
+		BN_bn2bin(q, privKeyTemplate[6].pValue);
+		BN_bn2bin(dmp1, privKeyTemplate[7].pValue);
+		BN_bn2bin(dmq1, privKeyTemplate[8].pValue);
+		BN_bn2bin(iqmp, privKeyTemplate[9].pValue);
+#endif
 
 		ulKeyAttributeCount = 10;
 		rv = pFunctionList->C_FindObjectsInit(h, privKeyTemplate, ulKeyAttributeCount);
@@ -1604,8 +1681,18 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 	if (Matches == 0)
 	{
 		DBG_fprintf("matches was 0, creating this key\n");
+#ifdef OLDER_OPENSSL
 		DBG_fprintf("rsa->n is %d bytes\n", BN_num_bytes(rsa->n));
-		if (fKeyCreate && BN_num_bytes(rsa->n)) {
+#else
+		DBG_fprintf("rsa->n is %d bytes\n", BN_num_bytes(n));
+#endif
+		if (fKeyCreate &&
+#ifdef OLDER_OPENSSL
+		    BN_num_bytes(rsa->n)
+#else
+		    BN_num_bytes(n)
+#endif
+		   ) {
 			if (oKey == CKO_PUBLIC_KEY)
 				rv = pFunctionList->C_CreateObject(h, pubKeyTemplate,
 								   ulKeyAttributeCount, &hKey);
@@ -2014,7 +2101,6 @@ static int pkcs11_RSA_init(RSA *rsa)
 	if (wrapper)
 		RSA_set_ex_data(rsa, pkcs11Session, (void *)wrapper->session);
 
-	rsa->flags |=  RSA_FLAG_SIGN_VER;
 	RSA_blinding_off(rsa);
 
 	return 1;
@@ -2032,14 +2118,14 @@ static int pkcs11_RSA_finish(RSA *rsa)
 	int err = 0;
 
 	DBG_fprintf("%s\n", __FUNCTION__);
-
+/*
 	if (rsa->_method_mod_n != NULL)
 		BN_MONT_CTX_free(rsa->_method_mod_n);
 	if (rsa->_method_mod_p != NULL)
 		BN_MONT_CTX_free(rsa->_method_mod_p);
 	if (rsa->_method_mod_q != NULL)
 		BN_MONT_CTX_free(rsa->_method_mod_q);
-
+*/
 	deletePrivKey = (long)RSA_get_ex_data(rsa, deletePrivKeyOnFree);
 	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
 
@@ -2092,6 +2178,7 @@ out:
 	return err;
 }
 
+#ifdef OLDER_OPENSSL
 static int pkcs11_RSA_sign(int type,
 		const unsigned char *m,
 		unsigned int m_len,
@@ -2115,7 +2202,13 @@ static int pkcs11_RSA_sign(int type,
 	CK_ULONG ulSigLen;
 
 	DBG_fprintf("%s\n", __FUNCTION__);
+#ifdef OLDER_OPENSSL
 	DBG_fprintf("rsa->n is %d bytes.\n", BN_num_bytes(rsa->n));
+#else
+	const BIGNUM *n;
+	RSA_get0_key(rsa, &n, NULL, NULL);
+	DBG_fprintf("rsa->n is %d bytes.\n", BN_num_bytes(n));
+#endif
 
 	/* Encode the digest	*/
 	/* Special case: SSL signature, just check the length */
@@ -2354,6 +2447,7 @@ err:
 
 	return ret;
 }
+#endif
 
 static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 		CK_MECHANISM *pMechanism,
@@ -2409,6 +2503,9 @@ static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 	int ret = 1;
 	struct token_session *wrapper = NULL;
 	CK_SESSION_HANDLE session;
+#ifndef OLDER_OPENSSL
+	BIGNUM *n;
+#endif
 
 	DBG_fprintf("%s\n", __FUNCTION__);
 
@@ -2509,8 +2606,15 @@ static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 		PKCS11err(PKCS11_F_RSA_GEN_KEY, PKCS11_R_NO_MODULUS);
 		goto err;
 	}
+
+#ifdef OLDER_OPENSSL
 	/* 	set n */ 
 	rsa->n = BN_bin2bn(pModulus->pValue, pModulus->ulValueLen, rsa->n);
+#else
+	n = BN_new();
+	BN_bin2bn(pModulus->pValue, pModulus->ulValueLen, n);
+	RSA_set0_key(rsa, n, NULL, NULL);
+#endif
 
 	/*	 search Exponent */
 	for(i = 0; i < ulPublicKeyAttributeResultCount; i++) 
@@ -2529,8 +2633,12 @@ static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 		PKCS11err(PKCS11_F_RSA_GEN_KEY, PKCS11_R_NO_EXPONENT);
 		goto err;
 	}
+#ifdef OLDER_OPENSSL
 	/* 	set e */ 
 	rsa->e = bn_e;
+#else
+	RSA_set0_key(rsa, NULL, bn_e, NULL);
+#endif
 	bn_e = NULL;
 
 	RSA_set_ex_data(rsa, rsaPubKey, (char *)hPublicKey);

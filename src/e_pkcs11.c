@@ -226,11 +226,8 @@ struct token_session {
 struct pkcs11_digest_ctx {
 	int alg;
 	int len;
-	int ref_cnt; /* number of references to this digest operation */
 	struct _token *token;
 	CK_SESSION_HANDLE session;
-	CK_BYTE_PTR state;
-	CK_ULONG ulStateLen;
 };
 
 /********/
@@ -3031,8 +3028,6 @@ pkcs11_digest_init(EVP_MD_CTX *ctx, int alg)
 	DBG_fprintf("%s, alg = %d\n", __FUNCTION__, alg);
 
 	MD_DATA(ctx)->alg = alg;
-	MD_DATA(ctx)->ref_cnt = 0;
-	MD_DATA(ctx)->state = NULL;
 
 	CK_MECHANISM_TYPE mech = get_mech(MD_DATA(ctx)->alg, NULL);
 	CK_MECHANISM mechanism = {mech, NULL, 0};
@@ -3060,14 +3055,6 @@ pkcs11_digest_update(EVP_MD_CTX *ctx, const void *in, size_t len)
 		return 0;
 	}
 	
-	if(MD_DATA(ctx)->state != NULL){
-		pFunctionList->C_SetOperationState(MD_DATA(ctx)->session,
-						   MD_DATA(ctx)->state,
-						   MD_DATA(ctx)->ulStateLen,
-						   0, 0);
-		MD_DATA(ctx)->state = NULL;
-	}
-
 	rv = pFunctionList->C_DigestUpdate(MD_DATA(ctx)->session,
 					   (CK_BYTE_PTR)in, len);
 	if (rv != CKR_OK) {
@@ -3097,11 +3084,6 @@ pkcs11_digest_finish(EVP_MD_CTX *ctx, unsigned char *md)
 		goto out_endsession;
 	}
 
-	if (MD_DATA(ctx)->ref_cnt) {
-		MD_DATA(ctx)->ref_cnt -= 1;
-		return 1;
-	}
-
 	ret = 1;
 
 out_endsession:
@@ -3111,24 +3093,47 @@ out_endsession:
 }
 
 static int
-pkcs11_digest_copy(EVP_MD_CTX *out, const EVP_MD_CTX *in)
+pkcs11_digest_copy(EVP_MD_CTX *dst, const EVP_MD_CTX *src)
 {
-	if (EVP_MD_CTX_test_flags(in, EVP_MD_CTX_FLAG_NO_INIT))
-		return 1;
+	CK_RV rv;
+	CK_ULONG opstatelen;
+	CK_BYTE_PTR opstate;
+
+	//if (EVP_MD_CTX_test_flags(in, EVP_MD_CTX_FLAG_NO_INIT))
+	//	return 1;
 
 	DBG_fprintf("%s\n", __FUNCTION__);
 
-	if(MD_DATA(in)->state == NULL){
-		pFunctionList->C_GetOperationState(MD_DATA(in)->session,
-						   NULL_PTR,
-						   &MD_DATA(in)->ulStateLen);
-		MD_DATA(in)->state = (CK_BYTE_PTR) malloc(
-				MD_DATA(in)->ulStateLen);
-		pFunctionList->C_GetOperationState(MD_DATA(in)->session,
-						   MD_DATA(in)->state,
-						   &MD_DATA(in)->ulStateLen);
+	/* pull operation state from src context */
+	rv = pFunctionList->C_GetOperationState(MD_DATA(src)->session,
+						NULL_PTR, &opstatelen);
+	if (rv != CKR_OK) {
+		DBG_fprintf("GetOperationState failed\n");
+		pkcs11_die(PKCS11_F_DIGESTCOPY, PKCS11_R_DIGESTUPDATE, rv);
+		return 0;
 	}
-	MD_DATA(out)->ref_cnt += 1;
+	opstate = (CK_BYTE_PTR) OPENSSL_malloc(opstatelen);
+	rv = pFunctionList->C_GetOperationState(MD_DATA(src)->session,
+						opstate, &opstatelen);
+	if (rv != CKR_OK) {
+		DBG_fprintf("GetOperationState failed\n");
+		pkcs11_die(PKCS11_F_DIGESTCOPY, PKCS11_R_DIGESTUPDATE, rv);
+		return 0;
+	}
+
+	/* init a new session for the dst context */
+	rv = pkcs11_digest_init(dst, MD_DATA(src)->alg);
+
+	/* set the operation state pulled above for this new session  */
+	rv = pFunctionList->C_SetOperationState(MD_DATA(dst)->session, opstate,
+						opstatelen, 0, 0);
+	if (rv != CKR_OK) {
+		DBG_fprintf("SetOperationState failed\n");
+		pkcs11_die(PKCS11_F_DIGESTCOPY, PKCS11_R_DIGESTUPDATE, rv);
+		return 0;
+	}
+
+	OPENSSL_free(opstate);
 
 	return 1;
 }

@@ -3,6 +3,8 @@
 #
 
 AC_INIT(openssl-ibmpkcs11, 1.0.0, opencryptoki-users@lists.sf.net)
+AC_CONFIG_SRCDIR([src/e_pkcs11.c]) #sanity check
+AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE(1.6.3)
 
 # Debugging support
@@ -14,7 +16,7 @@ AC_ARG_ENABLE(debug,
 # custom openssl location
 AC_ARG_WITH(openssl,
         [  --with-openssl[[=DIR]]    build with OpenSSL support [[/usr/local/ssl]]],
-        [openssl_prefix=$withval], 
+        [openssl_prefix=$withval],
         [openssl_prefix=]
 )
 if test "x$openssl_prefix" != x; then

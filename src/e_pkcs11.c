@@ -35,7 +35,6 @@
 #include <openssl/rsa.h>
 #include <openssl/rand.h>
 #include <openssl/objects.h>
-#include <openssl/x509.h>
 #include <openssl/md5.h>
 #include <openssl/ripemd.h>
 
@@ -76,21 +75,6 @@ static int pkcs11_RSA_private_decrypt(int flen, const unsigned char *from, unsig
 		RSA *rsa, int padding);
 static int pkcs11_RSA_init(RSA *rsa);
 static int pkcs11_RSA_finish(RSA *rsa);
-
-#ifdef OLDER_OPENSSL
-static int pkcs11_RSA_sign(int type, const unsigned char *m, unsigned int m_len,
-		unsigned char *sigret, unsigned int *siglen, const RSA *rsa);
-
-/* this API changed in OpenSSL version 1.0.0 */
-#if (OPENSSL_VERSION_NUMBER < 0x10000000L)
-static int pkcs11_RSA_verify(int dtype, const unsigned char *m, unsigned int m_len,
-		unsigned char *sigbuf, unsigned int siglen, const RSA *rsa);
-#else
-static int pkcs11_RSA_verify(int dtype, const unsigned char *m, unsigned int m_len,
-		const unsigned char *sigbuf, unsigned int siglen, const RSA *rsa);
-#endif
-#endif
-
 static int pkcs11_RSA_generate_key(RSA *rsa, int bits, BIGNUM *bn_e, BN_GENCB *cb);
 
 static EVP_PKEY *pkcs11_load_privkey(ENGINE*, const char* pubkey_file,
@@ -706,8 +690,8 @@ static RSA_METHOD pkcs11_rsa =
 	pkcs11_RSA_finish,                             /* finish */
 	RSA_FLAG_SIGN_VER,                             /* flags */
 	NULL,                                          /* app_data */
-	pkcs11_RSA_sign,                               /* rsa_sign */
-	pkcs11_RSA_verify,                             /* rsa_verify */
+	NULL,                                          /* rsa_sign */
+	NULL,                                          /* rsa_verify */
 	pkcs11_RSA_generate_key                       /* rsa_generate_key */ 
 };
 #else
@@ -1247,10 +1231,6 @@ void pkcs11_regToken(ENGINE *e, struct _token *tok)
 						pkcs11_RSA_init);
 				RSA_meth_set_finish(pkcs11_rsa,
 						pkcs11_RSA_finish);
-//				RSA_meth_set_sign(pkcs11_rsa,
-//						pkcs11_RSA_sign);
-//				RSA_meth_set_verify(pkcs11_rsa,
-//						pkcs11_RSA_verify);
 				RSA_meth_set_keygen(pkcs11_rsa,
 						pkcs11_RSA_generate_key);
 #endif
@@ -2450,277 +2430,6 @@ out:
 	OPENSSL_free(wrapper);
 	return err;
 }
-
-#ifdef OLDER_OPENSSL
-static int pkcs11_RSA_sign(int type,
-		const unsigned char *m,
-		unsigned int m_len,
-		unsigned char *sigret,
-		unsigned int *siglen,
-		const RSA *rsa)
-{
-	X509_SIG sig;
-	ASN1_TYPE parameter;
-	int i,j;
-	unsigned char *p,*s = NULL;
-	X509_ALGOR algor;
-	ASN1_OCTET_STRING digest;
-	CK_RV rv;
-	CK_MECHANISM Mechanism_rsa = {CKM_RSA_PKCS, NULL, 0};
-	CK_MECHANISM *pMechanism = &Mechanism_rsa;
-	CK_OBJECT_HANDLE hPrivateKey;
-	int ret = 0;
-	struct token_session *wrapper = NULL;
-	CK_SESSION_HANDLE session;
-	CK_ULONG ulSigLen;
-
-	DBG_fprintf("%s\n", __FUNCTION__);
-#ifdef OLDER_OPENSSL
-	DBG_fprintf("rsa->n is %d bytes.\n", BN_num_bytes(rsa->n));
-#else
-	const BIGNUM *n;
-	RSA_get0_key(rsa, &n, NULL, NULL);
-	DBG_fprintf("rsa->n is %d bytes.\n", BN_num_bytes(n));
-#endif
-
-	/* Encode the digest	*/
-	/* Special case: SSL signature, just check the length */
-	if(type == NID_md5_sha1)
-	{
-		if(m_len != SSL_SIG_LENGTH)
-		{
-			PKCS11err(PKCS11_F_RSA_SIGN, PKCS11_R_INVALID_MESSAGE_LENGTH);
-			DBG_fprintf("mlen = %d\n", m_len);
-			return 0;
-		}
-		i = SSL_SIG_LENGTH;
-		s = (unsigned char *)m;
-	}
-	else
-	{
-		sig.algor= &algor;
-		sig.algor->algorithm=OBJ_nid2obj(type);
-		if (sig.algor->algorithm == NULL)
-		{
-			PKCS11err(PKCS11_F_RSA_SIGN, PKCS11_R_UNKNOWN_ALGORITHM_TYPE);
-			return 0;
-		}
-		if (sig.algor->algorithm->length == 0)
-		{
-			PKCS11err(PKCS11_F_RSA_SIGN, PKCS11_R_UNKNOWN_ASN1_OBJECT_ID);
-			return 0;
-		}
-		parameter.type=V_ASN1_NULL;
-		parameter.value.ptr=NULL;
-		sig.algor->parameter= &parameter;
-
-		sig.digest= &digest;
-		sig.digest->data=(unsigned char *)m;
-		sig.digest->length=m_len;
-
-		i=i2d_X509_SIG(&sig,NULL);
-	}
-
-	j=RSA_size(rsa);
-	if ((i-RSA_PKCS1_PADDING) > j)
-	{
-		PKCS11err(PKCS11_F_RSA_SIGN, PKCS11_R_DIGEST_TOO_BIG);
-		return 0;
-	}
-
-	if(type != NID_md5_sha1)
-	{
-		s=(unsigned char *)OPENSSL_malloc((unsigned int)j+1);
-		if (s == NULL)
-		{
-			PKCS11err(PKCS11_F_RSA_SIGN, PKCS11_R_MALLOC_FAILURE);
-			return 0;
-		}
-		p=s;
-		i2d_X509_SIG(&sig,&p);
-	}
-
-	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
-	if (session == CK_INVALID_HANDLE || !session) {
-		wrapper = pkcs11_getSession();
-		if (!wrapper)
-			return 0;
-
-		DBG_fprintf("%d: created new session\n", __LINE__);
-		session = wrapper->session;
-		RSA_set_ex_data((RSA *)rsa, pkcs11Session, (void *)session);
-	}
-
-	hPrivateKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPrivKey);
-	if (hPrivateKey == CK_INVALID_HANDLE)
-		hPrivateKey = pkcs11_FindOrCreateKey(session, (RSA *)rsa, CKO_PRIVATE_KEY, true);
-
-	if (hPrivateKey != CK_INVALID_HANDLE)
-	{
-		rv = pFunctionList->C_SignInit(session, pMechanism, hPrivateKey);
-		if (rv != CKR_OK)
-		{
-			pkcs11_die(PKCS11_F_RSA_SIGN, PKCS11_R_SIGNINIT, rv);
-			goto err;
-		}
-
-		ulSigLen = j;
-		rv = pFunctionList->C_Sign(session, s, i, sigret, &ulSigLen);
-		if (rv != CKR_OK)
-		{
-			pkcs11_die(PKCS11_F_RSA_SIGN, PKCS11_R_SIGN, rv);
-			goto err;
-		}
-		*siglen = (unsigned int)ulSigLen;
-		ret = 1;
-	}
-
-	DBG_fprintf("returning *siglen = %u\n", *siglen);
-
-err:
-	if(type != NID_md5_sha1)
-	{
-		memset(s,0,(unsigned int)j+1);
-		OPENSSL_free(s);
-	}
-
-	OPENSSL_free(wrapper);
-
-	return ret;
-}
-
-#if (OPENSSL_VERSION_NUMBER < 0x10000000L)
-static int pkcs11_RSA_verify(int type,
-		const unsigned char *m,
-		unsigned int m_len,
-		unsigned char *sigbuf,
-		unsigned int siglen,
-		const RSA *rsa)
-#else
-static int pkcs11_RSA_verify(int type,
-		const unsigned char *m,
-		unsigned int m_len,
-		const unsigned char *sigbuf,
-		unsigned int siglen,
-		const RSA *rsa)
-#endif
-{
-	X509_SIG sig;
-	ASN1_TYPE parameter;
-	int i,j;
-	unsigned char *p,*s = NULL;
-	X509_ALGOR algor;
-	ASN1_OCTET_STRING digest;
-	CK_RV rv;
-	CK_MECHANISM Mechanism_rsa = {CKM_RSA_PKCS, NULL, 0};
-	CK_MECHANISM *pMechanism = &Mechanism_rsa;
-	CK_OBJECT_HANDLE hPublicKey;
-	CK_ULONG ulSigLen;
-	int ret = 0;
-	struct token_session *wrapper = NULL;
-	CK_SESSION_HANDLE session;
-
-	DBG_fprintf("%s\n", __FUNCTION__);
-
-	/* Encode the digest	*/
-	/* Special case: SSL signature, just check the length */
-	if(type == NID_md5_sha1)
-	{
-		if(m_len != SSL_SIG_LENGTH)
-		{
-			PKCS11err(PKCS11_F_RSA_VERIFY, PKCS11_R_INVALID_MESSAGE_LENGTH);
-			DBG_fprintf("m_len = %d\n", m_len);
-			return 0;
-		}
-		i = SSL_SIG_LENGTH;
-		s = (unsigned char *)m;
-	}
-	else
-	{
-		sig.algor= &algor;
-		sig.algor->algorithm=OBJ_nid2obj(type);
-		if (sig.algor->algorithm == NULL)
-		{
-			PKCS11err(PKCS11_F_RSA_VERIFY, PKCS11_R_UNKNOWN_ALGORITHM_TYPE);
-			return 0;
-		}
-		if (sig.algor->algorithm->length == 0)
-		{
-			PKCS11err(PKCS11_F_RSA_VERIFY, PKCS11_R_UNKNOWN_ASN1_OBJECT_ID);
-			return 0;
-		}
-		parameter.type=V_ASN1_NULL;
-		parameter.value.ptr=NULL;
-		sig.algor->parameter= &parameter;
-		sig.digest= &digest;
-		sig.digest->data=(unsigned char *)m;
-		sig.digest->length=m_len;
-		i=i2d_X509_SIG(&sig,NULL);
-	}
-
-	j=RSA_size(rsa);
-	if ((i-RSA_PKCS1_PADDING) > j)
-	{
-		PKCS11err(PKCS11_F_RSA_VERIFY, PKCS11_R_DIGEST_TOO_BIG);
-		return 0;
-	}
-
-	if(type != NID_md5_sha1)
-	{
-		s=(unsigned char *)OPENSSL_malloc((unsigned int)j+1);
-		if (s == NULL)
-		{
-			PKCS11err(PKCS11_F_RSA_VERIFY, PKCS11_R_MALLOC_FAILURE);
-			return 0;
-		}
-		p=s;
-		i2d_X509_SIG(&sig,&p);
-	}
-
-	session = (CK_SESSION_HANDLE)RSA_get_ex_data(rsa, pkcs11Session);
-	if (session == CK_INVALID_HANDLE || !session) {
-		wrapper = pkcs11_getSession();
-		if (!wrapper)
-			return 0;
-
-		DBG_fprintf("%d: created new session\n", __LINE__);
-		session = wrapper->session;
-		RSA_set_ex_data((RSA *)rsa, pkcs11Session, (void *)session);
-	}
-
-	hPublicKey = (CK_OBJECT_HANDLE)RSA_get_ex_data(rsa, rsaPubKey);
-	if (hPublicKey == CK_INVALID_HANDLE)
-		hPublicKey = pkcs11_FindOrCreateKey(session, (RSA *)rsa, CKO_PUBLIC_KEY, true);
-
-	if (hPublicKey != CK_INVALID_HANDLE)
-	{
-		rv = pFunctionList->C_VerifyInit(session, pMechanism, hPublicKey);
-		if (rv != CKR_OK)
-		{
-			pkcs11_die(PKCS11_F_RSA_VERIFY, PKCS11_R_VERIFYINIT, rv);
-			goto err;
-		}
-		ulSigLen = siglen;
-		rv = pFunctionList->C_Verify(session, s, i, (CK_BYTE_PTR)sigbuf, ulSigLen);
-		if (rv != CKR_OK)
-		{
-			pkcs11_die(PKCS11_F_RSA_VERIFY, PKCS11_R_VERIFY, rv);
-			goto err;
-		}
-		ret = 1;
-	}
-
-err:
-	if(type != NID_md5_sha1)
-	{
-		memset(s,0,(unsigned int)siglen);
-		OPENSSL_free(s);
-	}
-	OPENSSL_free(wrapper);
-
-	return ret;
-}
-#endif
 
 static int pkcs11_RSA_generate_key_with_mechanism(RSA* rsa,
 		CK_MECHANISM *pMechanism,

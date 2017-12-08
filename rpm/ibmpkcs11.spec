@@ -1,11 +1,11 @@
 Name:           openssl-ibmpkcs11
 Summary:        An IBM PKCS#11 OpenSSL dynamic engine
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 License:        OpenSSL
 Group:          System Environment/Base
 Source:         https://github.com/opencryptoki/%{name}/archive/v%{version}.tar.gz
-URL:            https://github.com/opencryptoki/%{name}
+URL:            https://github.com/opencryptoki/openssl-ibmpkcs11
 BuildRequires:  openssl-devel >= 0.9.8, autoconf, automake, libtool
 Requires:       openssl >= 0.9.8, opencryptoki >= 3.5.0
 

@@ -1,9 +1,9 @@
-lib_LTLIBRARIES=libibmpkcs11.la
+lib_LTLIBRARIES=ibmpkcs11.la
 
-libibmpkcs11_la_CFLAGS=-I./include
+ibmpkcs11_la_CFLAGS=-I./include
 
-libibmpkcs11_la_LDFLAGS=@LIBS@ -lc -lpthread -ldl
-libibmpkcs11_la_SOURCES=e_pkcs11.c \
+ibmpkcs11_la_LDFLAGS=@LIBS@ -lc -lpthread -ldl
+ibmpkcs11_la_SOURCES=e_pkcs11.c \
 			e_pkcs11_err.c \
 			e_pkcs11.h \
 			pkcs11f.h \

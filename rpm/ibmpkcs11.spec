@@ -1,36 +1,42 @@
+%global enginesdir %(pkg-config --variable=enginesdir libcrypto)
+
 Name:           openssl-ibmpkcs11
-Summary:        An IBM PKCS#11 OpenSSL dynamic engine
 Version:        1.0.1
 Release:        1%{?dist}
+Summary:        An IBM PKCS#11 OpenSSL dynamic engine
+
 License:        OpenSSL
-Group:          System Environment/Base
-Source:         https://github.com/opencryptoki/%{name}/archive/v%{version}.tar.gz
 URL:            https://github.com/opencryptoki/openssl-ibmpkcs11
-BuildRequires:  openssl-devel >= 0.9.8, autoconf, automake, libtool
-Requires:       openssl >= 0.9.8, opencryptoki >= 3.5.0
+Source:         https://github.com/opencryptoki/%{name}/archive/v%{version}/%{name}-%{version}.tar.gz
+
+BuildRequires:  autoconf automake libtool
+BuildRequires:  openssl-devel >= 0.9.8
+Requires:       openssl >= 0.9.8, opencryptoki-libs%{?_isa}
+
 
 %description
 This package contains a shared object OpenSSL dynamic engine for the use
 with a PKCS#11 implementation such as openCryptoki.
 
 %prep
-%setup -q
+%setup -q -n %{name}-%{version}
+
+./bootstrap.sh
 
 %build
-autoreconf --force --install
-%configure --libdir=%{_libdir}/openssl/engines
-make %{?_smp_mflags}
+%configure --libdir=%{enginesdir}
+%make_build
 
 %install
-make DESTDIR=%{buildroot} install
+%make_install
+mv openssl.cnf.sample openssl.cnf.sample.%{_arch}
+rm -f $RPM_BUILD_ROOT%{enginesdir}/*.la
 
-%post -p /sbin/ldconfig
-
-%postun -p /sbin/ldconfig
 
 %files
-%doc README ChangeLog openssl.cnf.sample
-%{_libdir}/openssl/engines/libibmpkcs11.*
+%license LICENSE
+%doc README openssl.cnf.sample.%{_arch}
+%{enginesdir}/ibmpkcs11.so
 
 %changelog
 * Mon May 9 2011 - key@linux.vnet.ibm.com

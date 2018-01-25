@@ -18,6 +18,6 @@ src/.deps/
 src/.libs/
 src/Makefile
 src/Makefile.in
-src/libibmpkcs11.la
-src/libibmpkcs11_la-e_pkcs11.lo
-src/libibmpkcs11_la-e_pkcs11_err.lo
+src/ibmpkcs11.la
+src/ibmpkcs11_la-e_pkcs11.lo
+src/ibmpkcs11_la-e_pkcs11_err.lo

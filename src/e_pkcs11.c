@@ -1857,6 +1857,7 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 
 #ifdef OLDER_OPENSSL
 		privKeyTemplate[2].ulValueLen = BN_num_bytes(rsa->n);
+		privKeyTemplate[3].ulValueLen = BN_num_bytes(rsa->e);
 		privKeyTemplate[4].ulValueLen = BN_num_bytes(rsa->d);
 		privKeyTemplate[5].ulValueLen = BN_num_bytes(rsa->p);
 		privKeyTemplate[6].ulValueLen = BN_num_bytes(rsa->q);
@@ -1864,10 +1865,11 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 		privKeyTemplate[8].ulValueLen = BN_num_bytes(rsa->dmq1);
 		privKeyTemplate[9].ulValueLen = BN_num_bytes(rsa->iqmp);
 #else
-		RSA_get0_key(rsa, &n, NULL, &d);
+		RSA_get0_key(rsa, &n, &e, &d);
 		RSA_get0_factors(rsa, &p, &q);
 		RSA_get0_crt_params(rsa, &dmp1, &dmq1, &iqmp);
 		privKeyTemplate[2].ulValueLen = BN_num_bytes(n);
+		privKeyTemplate[3].ulValueLen = BN_num_bytes(e);
 		privKeyTemplate[4].ulValueLen = BN_num_bytes(d);
 		privKeyTemplate[5].ulValueLen = BN_num_bytes(p);
 		privKeyTemplate[6].ulValueLen = BN_num_bytes(q);
@@ -1878,6 +1880,8 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 
 		privKeyTemplate[2].pValue = (CK_VOID_PTR)OPENSSL_malloc(
 				(size_t)privKeyTemplate[2].ulValueLen);
+		privKeyTemplate[3].pValue = (CK_VOID_PTR)OPENSSL_malloc(
+				(size_t)privKeyTemplate[3].ulValueLen);
 		privKeyTemplate[4].pValue = (CK_VOID_PTR)OPENSSL_malloc(
 				(size_t)privKeyTemplate[4].ulValueLen);
 		privKeyTemplate[5].pValue = (CK_VOID_PTR)OPENSSL_malloc(
@@ -1893,6 +1897,7 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 
 #ifdef OLDER_OPENSSL
 		BN_bn2bin(rsa->n, privKeyTemplate[2].pValue);
+		BN_bn2bin(rsa->e, privKeyTemplate[3].pValue);
 		BN_bn2bin(rsa->d, privKeyTemplate[4].pValue);
 		BN_bn2bin(rsa->p, privKeyTemplate[5].pValue);
 		BN_bn2bin(rsa->q, privKeyTemplate[6].pValue);
@@ -1901,6 +1906,7 @@ CK_OBJECT_HANDLE pkcs11_FindOrCreateKey(CK_SESSION_HANDLE  h,
 		BN_bn2bin(rsa->iqmp, privKeyTemplate[9].pValue);
 #else
 		BN_bn2bin(n, privKeyTemplate[2].pValue);
+		BN_bn2bin(e, privKeyTemplate[3].pValue);
 		BN_bn2bin(d, privKeyTemplate[4].pValue);
 		BN_bn2bin(p, privKeyTemplate[5].pValue);
 		BN_bn2bin(q, privKeyTemplate[6].pValue);
@@ -2011,6 +2017,36 @@ err:
 		{
 			OPENSSL_free(privKeyTemplate[4].pValue);
 			privKeyTemplate[4].pValue = NULL;
+		}
+
+		if (privKeyTemplate[5].pValue != NULL)
+		{
+			OPENSSL_free(privKeyTemplate[5].pValue);
+			privKeyTemplate[5].pValue = NULL;
+		}
+
+		if (privKeyTemplate[6].pValue != NULL)
+		{
+			OPENSSL_free(privKeyTemplate[6].pValue);
+			privKeyTemplate[6].pValue = NULL;
+		}
+
+		if (privKeyTemplate[7].pValue != NULL)
+		{
+			OPENSSL_free(privKeyTemplate[7].pValue);
+			privKeyTemplate[7].pValue = NULL;
+		}
+
+		if (privKeyTemplate[8].pValue != NULL)
+		{
+			OPENSSL_free(privKeyTemplate[8].pValue);
+			privKeyTemplate[8].pValue = NULL;
+		}
+
+		if (privKeyTemplate[9].pValue != NULL)
+		{
+			OPENSSL_free(privKeyTemplate[9].pValue);
+			privKeyTemplate[9].pValue = NULL;
 		}
 	}
 

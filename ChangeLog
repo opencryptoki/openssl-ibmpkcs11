@@ -1,3 +1,10 @@
+* openssl-ibmpkcs11 1.0.2
+- Fix RSA find or create private key
+- Switch to ibmpkcs11.so filename to allow a standalone use
+- Link as a module
+- Remove obsolete m4s macro
+- Update spec file and .gitignore
+
 * openssl-ibmpkcs11 1.0.1
 - Make the project compatible with OpenSSL-1.1.
 - Fix compilation warnings.

@@ -2,7 +2,7 @@
 # configure.in for the OpenSSL IBM PKCS#11 engine project
 #
 
-AC_INIT(openssl-ibmpkcs11, 1.0.0, opencryptoki-users@lists.sf.net)
+AC_INIT(openssl-ibmpkcs11, 1.0.2, opencryptoki-users@lists.sf.net)
 AC_CONFIG_SRCDIR([src/e_pkcs11.c]) #sanity check
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE(1.6.3)

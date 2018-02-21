@@ -1,7 +1,7 @@
 %global enginesdir %(pkg-config --variable=enginesdir libcrypto)
 
 Name:           openssl-ibmpkcs11
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        An IBM PKCS#11 OpenSSL dynamic engine
 
@@ -39,6 +39,19 @@ rm -f $RPM_BUILD_ROOT%{enginesdir}/*.la
 %{enginesdir}/ibmpkcs11.so
 
 %changelog
+* Wed Feb 21 2018 Eduardo Barretto <ebarretto@linux.vnet.ibm.com> 1.0.2
+- Updated to 1.0.2
+
+* Thu Jan 25 2018 Eduardo Barretto <ebarretto@linux.vnet.ibm.com>
+- Update engine filename
+- Spec cleanup
+
+* Fri Dec 8 2017 Eduardo Barretto <ebarretto@linux.vnet.ibm.com> 1.0.1
+- Updated to 1.0.1
+
+* Fri Aug 11 2017 Eduardo Barretto <ebarretto@linux.vnet.ibm.com>
+- Update and cleanup spec
+
 * Mon May 9 2011 - key@linux.vnet.ibm.com
 - Updated version number, copyright
 
